@@ -1,6 +1,6 @@
 import sys, os, tty, termios
 import time
-from threading import Thread
+import threading
 
 import scservo_sdk
 
@@ -79,7 +79,7 @@ class Logger():
     def write (self, msg):
         self.logfile.write(self.tstamp()+" "+msg)
         print(msg)
-    def error (self, msg):
+    def err (self, msg):
         self.logfile.write("*** ERR *** "+self.tstamp()+" "+msg)
         print("*** ERR ***",msg)
 
@@ -87,22 +87,21 @@ class Logger():
 
 class MotorDriver (scservo_sdk.sms_sts):
     def __init__ (self, devicename, baudrate):
-        self.portHandler = scservo_sdk.portHandler(devicename)
+        self.portHandler = scservo_sdk.PortHandler(devicename)
         scservo_sdk.sms_sts.__init__ (self, self.portHandler)
-        if not portHandler.openPort():
+        if not self.portHandler.openPort():
             raise Exception("failed to open servo port")
-        if not portHandler.setBaudRate(baudrate):
+        if not self.portHandler.setBaudRate(baudrate):
             raise Exception("failed to set servo baud rate")
     def success (self, comm, err, log=None, strict=False):
         _success = True
-        if comm != scservo_sdk.sms_sts..COMM_SUCCESS:
+        if comm != scservo_sdk.COMM_SUCCESS:
             if not log is None:
-                log.write("TxRx  " + self.getTxRxResult(comm)
-            if strict:
+                log.write("TxRx  " + self.getTxRxResult(comm))
                 _success = False
         if err != 0:
             if not log is None:
-                log.write("RxERR " + self.getRxPacketError(err)
+                log.write("RxERR " + self.getRxPacketError(err))
             _success = False
         return _success
     def WaitMoving (self, scs_id):
@@ -185,7 +184,7 @@ class ServoMonitor():
     def _run (self):
         if not self.done:
             success = self.update_pos()
-            if success and not silent:
+            if success and not self.silent:
                 print("-- position",self.pos,self.wrap,"--\r")
             self.next_t += self.increment
             threading.Timer(self.next_t - time.time(), self._run).start()
@@ -235,8 +234,8 @@ def wait_for_soe ():
 
 
 
-Thread(target=wait_for_lo).start()
-Thread(target=wait_for_soe).start()
+#threading.Thread(target=wait_for_lo).start()
+#threading.Thread(target=wait_for_soe).start()
 
 monitor = ServoMonitor(increment=2)
 
@@ -323,6 +322,8 @@ while True:
                             raise Exception
                         time.sleep(0.2)
                         MotorDriver.WheelMode(scs_id,True)
+                except:
+                    print('ERROR')
         case 'G':
             stop_all_servos()
             ax = input('axis? ')
