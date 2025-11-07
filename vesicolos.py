@@ -170,6 +170,17 @@ for ax in sorted(SERVOS.keys()):
 if not found_all_servos:
     log.err("unexpected servo configuration found")
 
+def stop_all_servos ():
+    success = True
+    for ax in axes:
+        comm, err = motorDriver.WriteSpec(SERVOS[ax]['ID'], 0, ST_MOVING_ACC)
+        if motorDriver.success (comm, err):
+            SERVOS[ax]['current_speed'] = 0
+        else:
+            success = False
+    return success
+stop_all_servos()
+
 ## monitor for servo positions
 
 class ServoMonitor():
@@ -188,18 +199,24 @@ class ServoMonitor():
                 print("-- position",self.pos,self.wrap,"--\r")
             self.next_t += self.increment
             threading.Timer(self.next_t - time.time(), self._run).start()
-    def update_pos (self):
+    def update_pos (self,detect_wrap=True):
         success = True
         newpos = { _:0 for _ in axes }
         for ax in axes:
             newpos[ax], comm, err = motorDriver.ReadPos(SERVOS[ax]['ID'])
             success &= motorDriver.success(comm, err)
-        if success:
+        if success and detect_wrap:
             for ax in axes:
-                if newpos[ax] < 100 and self.pos[ax] > ST_STEPS-100:
+                vel = SERVOS[ax]['current_speed']
+                if vel>0 and newpos[ax] < self.pos[ax]:
                     self.wrap[ax] += 1
-                if newpos[ax] > ST_STEPS-100 and self.pos[ax] < 100:
+                if vel<0 and newpos[ax] > self.pos[ax]:
                     self.wrap[ax] -= 1
+                if vel==0:
+                    if newpos[ax] < 100 and self.pos[ax] > ST_STEPS-100:
+                        self.wrap[ax] += 1
+                    if newpos[ax] > ST_STEPS-100 and self.pos[ax] < 100:
+                        self.wrap[ax] -= 1
                 self.pos[ax] = newpos[ax]
         return success
     def stop (self):
@@ -210,15 +227,7 @@ class ServoMonitor():
         self.done = False
         self._run()
 
-def stop_all_servos ():
-    success = True
-    for ax in axes:
-        comm, err = motorDriver.WriteSpec(SERVOS[ax]['ID'], 0, ST_MOVING_ACC)
-        if motorDriver.success (comm, err):
-            SERVOS[ax]['current_speed'] = 0
-        else:
-            success = False
-    return success
+
 
 
 
@@ -239,6 +248,7 @@ def wait_for_soe ():
 
 #threading.Thread(target=wait_for_lo).start()
 #threading.Thread(target=wait_for_soe).start()
+
 
 monitor = ServoMonitor(increment=2)
 
@@ -263,11 +273,15 @@ while True:
             stop_all_servos()
             if ch == 'H':
                 poskey = 'homepos'
+                reset_wrap = True
             else:
                 poskey = 'savepos'+ch[1]
+                reset_wrap = False
             success = monitor.update_pos()
             if success:
                 for ax in axes:
+                    if reset_wrap:
+                        monitor.wrap[ax] = 0
                     SERVOS[ax][poskey] = (monitor.pos[ax],monitor.wrap[ax])
                 print ('saved',poskey,monitor.pos,monitor.wrap)
         case 'R' | '1' | '2' | '3' | '4':
@@ -316,14 +330,13 @@ while True:
                             if delta_wrap < 0:
                                 direction = -1
                             time.sleep(0.2)
-                            success = motorDriver.GotoPos(scs_id, ST_MIDDLE + direction*ST_STEPS*ST_MAX_WRAPS)
+                            success = motorDriver.GotoPos(scs_id, ST_MIDDLE + direction*ST_STEPS*(ST_MAX_WRAPS-1))
                             if not success:
                                 raise Exception
                             comm, err = motorDriver.SetMiddle(scs_id)
                             if not motorDriver.success(comm, err):
                                 raise Exception
-                            delta_wrap -= direction*ST_MAX_WRAPS
-                            time.sleep(0.2)
+                            delta_wrap -= direction*(ST_MAX_WRAPS-1)
                         dpos = delta_pos + ST_STEPS*delta_wrap
                         success = motorDriver.GotoPos(scs_id, ST_MIDDLE+dpos)
                         if not success:
@@ -379,6 +392,7 @@ while True:
 # shutdown:
 # stop all servos, close port
 
+print('shutdown')
 stop_all_servos()
 for ax in axes:
     motorDriver.WheelMode(SERVOS[ax]['ID'], True)
