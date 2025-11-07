@@ -20,7 +20,7 @@ ST_MOVING_ACC = 50             # default servo acceleration
 SERVOS = {
   'X': { 'ID': 0, 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
   'Y': { 'ID': 9, 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
-  'Z': { 'ID': 1, 'DEFAULT_SPEED':  200, 'SPEED_INC':  20, 'current_speed': 0 },
+  'Z': { 'ID': 1, 'DEFAULT_SPEED':  200, 'SPEED_INC':  40, 'current_speed': 0 },
 }
 SERVO_CMDS = {
   'UP':     { 'axis': 'Y', 'dir': +1 },
@@ -124,14 +124,14 @@ class MotorDriver (scservo_sdk.sms_sts):
         if pos < 0:
             pos = (-pos) | (1<<15)
         txpacket = [acc, self.scs_lobyte(pos), self.scs_hibyte(pos), 0, 0, self.scs_lobyte(speed), self.scs_hibyte(speed)]
-        return self.writeTxRx(scs_id, SMS_STS_ACC, len(txpacket), txpacket)
+        return self.writeTxRx(scs_id, scservo_sdk.SMS_STS_ACC, len(txpacket), txpacket)
     # convenience wrapper for moving
     def GotoPos (self, scs_id, position):
         comm, err = self.WritePosEx(scs_id, position, 0, ST_MOVING_ACC)
         _success = self.success(comm, err)
         if _success:
             self.WaitMoving(scs_id)
-        return _sucess
+        return _success
 
 
 ## global state variables
@@ -204,7 +204,7 @@ class ServoMonitor():
         return success
     def stop (self):
         self.done = True
-    def start (self, increment, silent=False):
+    def start (self, silent=False):
         self.next_t = time.time()
         self.silent = silent
         self.done = False
@@ -214,7 +214,10 @@ def stop_all_servos ():
     success = True
     for ax in axes:
         comm, err = motorDriver.WriteSpec(SERVOS[ax]['ID'], 0, ST_MOVING_ACC)
-        success &= motorDriver.success (comm, err)
+        if motorDriver.success (comm, err):
+            SERVOS[ax]['current_speed'] = 0
+        else:
+            success = False
     return success
 
 
@@ -266,7 +269,7 @@ while True:
             if success:
                 for ax in axes:
                     SERVOS[ax][poskey] = (monitor.pos[ax],monitor.wrap[ax])
-                print ('saved',savepos,monitor.pos,monitor.wrap)
+                print ('saved',poskey,monitor.pos,monitor.wrap)
         case 'R' | '1' | '2' | '3' | '4':
             if ch == 'R':
                 poskey = 'homepos'
@@ -295,15 +298,19 @@ while True:
                     target_pos = { _: SERVOS[_][poskey][0] for _ in axes }
                     current_wrap = monitor.wrap
                     target_wrap = { _: SERVOS[_][poskey][1] for _ in axes }
+                    print('current',current_pos,current_wrap)
+                    print('target ',target_pos,target_wrap)
                     for ax in axes:
                         scs_id = SERVOS[ax]['ID']
                         motorDriver.WheelMode(scs_id,False)
                         time.sleep(0.2)
+                        print('setting middlepos')
                         comm, err = motorDriver.SetMiddle(scs_id)
                         if not motorDriver.success(comm, err):
                             raise Exception
                         delta_pos = target_pos[ax] - current_pos[ax]
                         delta_wrap = target_wrap[ax] - current_wrap[ax]
+                        print('need delta',delta_pos,delta_wrap)
                         if abs(delta_wrap) >= ST_MAX_WRAPS:
                             direction = 1
                             if delta_wrap < 0:
@@ -317,14 +324,21 @@ while True:
                                 raise Exception
                             delta_wrap -= direction*ST_MAX_WRAPS
                             time.sleep(0.2)
-                        dpos = delta_pos + ST_STEPS*delta_wraps
+                        dpos = delta_pos + ST_STEPS*delta_wrap
                         success = motorDriver.GotoPos(scs_id, ST_MIDDLE+dpos)
                         if not success:
                             raise Exception
                         time.sleep(0.2)
                         motorDriver.WheelMode(scs_id,True)
-                except:
-                    print('ERROR')
+                        time.sleep(0.2)
+                        monitor.update_pos()
+                        monitor.wrap[ax] = target_wrap[ax]
+                        if monitor.pos[ax] < 100 and target_pos[ax] > ST_STEPS-100:
+                            monitor.wrap[ax] += 1
+                        if monitor.pos[ax] > ST_STEPS-100 and target_pos[ax] > ST_STEPS-100:
+                            monitor.wrap[ax] -= 1                        
+                except Exception as err:
+                    print('ERROR',str(err))
                 monitor.start()
         case 'G':
             stop_all_servos()
