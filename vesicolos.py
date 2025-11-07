@@ -19,16 +19,16 @@ ST_MOVING_ACC = 50             # default servo acceleration
 # values with lower-case names will be modified by the program
 SERVOS = {
   'X': { 'ID': 0, 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
-  'Y': { 'ID': 0, 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
+  'Y': { 'ID': 9, 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
   'Z': { 'ID': 1, 'DEFAULT_SPEED':  200, 'SPEED_INC':  20, 'current_speed': 0 },
 }
 SERVO_CMDS = {
   'UP':     { 'axis': 'Y', 'dir': +1 },
   'DOWN':   { 'axis': 'Y', 'dir': -1 },
-  'LEFT':   { 'axis': 'X', 'dir': +1 },
-  'RIGHT':  { 'axis': 'X', 'dir': -1 },
-  'PGUP':   { 'axis': 'Z', 'dir': +1 },
-  'PGDOWN': { 'axis': 'Z', 'dir': -1 }
+  'LEFT':   { 'axis': 'X', 'dir': -1 },
+  'RIGHT':  { 'axis': 'X', 'dir': +1 },
+  'PGUP':   { 'axis': 'Z', 'dir': -1 },
+  'PGDOWN': { 'axis': 'Z', 'dir': +1 }
 }
 
 ## methods to deal with keyboard input
@@ -164,7 +164,7 @@ found_all_servos = True
 for ax in sorted(SERVOS.keys()):
     if SERVOS[ax]['ID'] in detected_servos:
         axes.append(ax)
-        MotorDriver.WheelMode(SERVOS[ax]['ID'], True)
+        motorDriver.WheelMode(SERVOS[ax]['ID'], True)
     else:
         found_all_servos = False
 if not found_all_servos:
@@ -213,8 +213,8 @@ class ServoMonitor():
 def stop_all_servos ():
     success = True
     for ax in axes:
-        comm, err = MotorDriver.WriteSpec(SERVOS[ax]['ID'], 0, ST_MOVING_ACC)
-        success &= MotorDriver.success (comm, err)
+        comm, err = motorDriver.WriteSpec(SERVOS[ax]['ID'], 0, ST_MOVING_ACC)
+        success &= motorDriver.success (comm, err)
     return success
 
 
@@ -250,8 +250,8 @@ while True:
             direction = SERVO_CMDS[ch]['dir']
             vel = SERVOS[ax]['current_speed'] \
                 + direction*SERVOS[ax]['SPEED_INC']
-            comm, err = MotorDriver.WriteSpec(SERVOS[ax]['ID'], vel, ST_MOVING_ACC)
-            if Motor.Driver.success(comm, err):
+            comm, err = motorDriver.WriteSpec(SERVOS[ax]['ID'], vel, ST_MOVING_ACC)
+            if motorDriver.success(comm, err):
                 SERVOS[ax]['current_speed'] = vel
         case '0':
             if stop_all_servos():
@@ -262,7 +262,7 @@ while True:
                 poskey = 'homepos'
             else:
                 poskey = 'savepos'+ch[1]
-            success = ServoMonitor.update_pos()
+            success = monitor.update_pos()
             if success:
                 for ax in axes:
                     SERVOS[ax][poskey] = (monitor.pos[ax],monitor.wrap[ax])
@@ -286,8 +286,9 @@ while True:
                 # 4. go to wheel mode
                 stop_all_servos()
                 time.sleep(0.2)
+                monitor.stop()
                 try:
-                    success = ServoMonitor.update_pos()
+                    success = monitor.update_pos()
                     if not success:
                         raise Exception("failed updating position")
                     current_pos = monitor.pos
@@ -296,10 +297,10 @@ while True:
                     target_wrap = { _: SERVOS[_][poskey][1] for _ in axes }
                     for ax in axes:
                         scs_id = SERVOS[ax]['ID']
-                        MotorDriver.WheelMode(scs_id,False)
+                        motorDriver.WheelMode(scs_id,False)
                         time.sleep(0.2)
-                        comm, err = MotorDriver.SetMiddle(scs_id)
-                        if not MotorDriver.success(comm, err):
+                        comm, err = motorDriver.SetMiddle(scs_id)
+                        if not motorDriver.success(comm, err):
                             raise Exception
                         delta_pos = target_pos[ax] - current_pos[ax]
                         delta_wrap = target_wrap[ax] - current_wrap[ax]
@@ -308,22 +309,23 @@ while True:
                             if delta_wrap < 0:
                                 direction = -1
                             time.sleep(0.2)
-                            success = MotorDriver.GotoPos(scs_id, ST_MIDDLE + direction*ST_STEPS*ST_MAX_WRAPS)
+                            success = motorDriver.GotoPos(scs_id, ST_MIDDLE + direction*ST_STEPS*ST_MAX_WRAPS)
                             if not success:
                                 raise Exception
-                            comm, err = MotorDriver.SetMiddle(scs_id)
-                            if not MotorDriver.success(comm, err):
+                            comm, err = motorDriver.SetMiddle(scs_id)
+                            if not motorDriver.success(comm, err):
                                 raise Exception
                             delta_wrap -= direction*ST_MAX_WRAPS
                             time.sleep(0.2)
                         dpos = delta_pos + ST_STEPS*delta_wraps
-                        success = MotorDriver.GotoPos(scs_id, ST_MIDDLE+dpos)
+                        success = motorDriver.GotoPos(scs_id, ST_MIDDLE+dpos)
                         if not success:
                             raise Exception
                         time.sleep(0.2)
-                        MotorDriver.WheelMode(scs_id,True)
+                        motorDriver.WheelMode(scs_id,True)
                 except:
                     print('ERROR')
+                monitor.start()
         case 'G':
             stop_all_servos()
             ax = input('axis? ')
@@ -336,23 +338,23 @@ while True:
             except ValueError:
                 print ("illegal position")
                 continue
-            MotorDriver.WheelMode(SERVOS[ax]['ID'], False)
+            motorDriver.WheelMode(SERVOS[ax]['ID'], False)
             time.sleep(0.2)
-            MotorDriver.GotoPos(SERVOS[ax]['ID'], pos)
+            motorDriver.GotoPos(SERVOS[ax]['ID'], pos)
             time.sleep(0.2)
-            MotorDriver.WheelMode(SERVOS[ax]['ID'], True)
+            motorDriver.WheelMode(SERVOS[ax]['ID'], True)
         case 'W':
             stop_all_servos()
             wheelpos = { _: 0 for _ in axes }
             servopos = { _: 0 for _ in axes }
             for ax in axes:
                 scs_id = SERVOS[ax]['ID']
-                wheelpos[ax], comm, err = MotorDriver.ReadPos(scs_id)
+                wheelpos[ax], comm, err = motorDriver.ReadPos(scs_id)
                 time.sleep(0.2)
-                MotorDriver.WheelMode(scs_id, False)
-                servopos[ax], comm, err = MotorDriver.ReadPos(scs_id)
+                motorDriver.WheelMode(scs_id, False)
+                servopos[ax], comm, err = motorDriver.ReadPos(scs_id)
                 time.sleep(0.2)
-                MotorDriver.WheelMode(scs_id, True)
+                motorDriver.WheelMode(scs_id, True)
             print ("current position (wheel)",wheelpos)
             print ("current position (servo)",servopos)
         case '?':
@@ -365,7 +367,7 @@ while True:
 
 stop_all_servos()
 for ax in axes:
-    MotorDriver.WheelMode(SERVOS[ax]['ID'], True)
+    motorDriver.WheelMode(SERVOS[ax]['ID'], True)
 
 monitor.stop()
 
