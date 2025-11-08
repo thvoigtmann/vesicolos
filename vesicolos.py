@@ -453,6 +453,8 @@ while True:
 
 # shutdown:
 
+print('shutdown')
+
 led.off()
 heater.off()
 # the above two lines should switch off the LED and the heater
@@ -462,12 +464,16 @@ led.close()
 heater.close()
 led = None
 heater = None
-GPIO.setup(GPIO_LED, GPIO.IN)
-GPIO.setup(GPIO_HEATER, GPIO.IN)
+try:
+    GPIO.setup(GPIO_LED, GPIO.OUT)
+    GPIO.setup(GPIO_HEATER, GPIO.OUT)
+    GPIO.output(GPIO_LED, False)
+    GPIO.output(GPIO_HEATER, False)
+except Exception as err:
+    print('ERR' + str(err))
 
 # stop all servos, close port
 
-print('shutdown')
 stop_all_servos()
 for ax in axes:
     motorDriver.WheelMode(SERVOS[ax]['ID'], True)
