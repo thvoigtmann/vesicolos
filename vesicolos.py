@@ -1,4 +1,4 @@
-import sys, os, tty, termios
+import sys, os, tty, termios, select
 import time
 import threading
 
@@ -12,8 +12,9 @@ import max31865
 
 ## global settings
 
-GPIO_LO = 17                   # GPIO pin used for LO signal
-GPIO_MUG = 27                  # GPIO pin used for mug detection signal
+STATUS_PINS = { 'LO': 17, 'mug': 27 } # GPIO pins used for signals
+SOE_TIMEOUT = 65               # timeout to start if no mug signal comes
+EXP_TIMEOUT = 450              # timeout for duration of experiment
 GPIO_LED = 13                  # GPIO pin used for LED (PWM)
 GPIO_HEATER = 12               # GPIO pin used for heater (PWM)
 GPIO_MISO = 9                  # MISO signal for SPI bus
@@ -47,7 +48,6 @@ SERVO_CMDS = {
 }
 
 # signal configuration
-status_pins = { 'LO': GPIO_LO, 'mug': GPIO_MUG }
 status = { _: False for _ in status_pins }
 for pin in status_pins.values():
     GPIO.setup(pin, GPIO.IN)
@@ -56,9 +56,7 @@ for pin in status_pins.values():
 ## global state variables
 
 stop = False
-lift_off = False
 manual_lift_off = False
-mug = False
 debug = False
 
 
@@ -73,7 +71,7 @@ key_mapping = {
   127: 'backspace'
 }
 
-def getkey():
+def getkey(timeout=1):
     """Read key from keyboard using low-level os.read()
        Return string describing the key.
        Adapted from https://stackoverflow.com/a/47197390/5802289"""
@@ -81,21 +79,21 @@ def getkey():
     old_settings = termios.tcgetattr(sys.stdin)
     tty.setcbreak(sys.stdin.fileno())
     try:
-        while True:
+        r, w, e = select.select([ sys.stdin ], [], [], timeout)
+        if not sys.stdin in r:
+            res = None
+        else:
             b = os.read(sys.stdin.fileno(), 4).decode()
-            print("L",len(b))
-            for i in range(len(b)):
-                print("I",ord(b[i]),end=' ')
-            print("\n",len(b))
             if len(b) >= 3:
                 k = ord(b[2])
-                return key_mapping.get((ord(b[1]),k), chr(k))
+                res = key_mapping.get((ord(b[1]),k), chr(k))
             else:
                 k = ord(b)
-            print (k)
-            return key_mapping.get(k, chr(k))
+                res = key_mapping.get(k, chr(k))
     finally:
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+    return res
+
 
 ## logging
 
@@ -283,36 +281,33 @@ stop_all_servos()
 
 
 
-
 def wait_for_lo ():
-    global lift_off
+    global status, manual_lift_off
     global stop
     t0 = time.time()
-    while (not GPIO.input(GPIO_LO)) and not stop:
+    while (not GPIO.input(status_pins['LO'])) \
+        and (not stop) and (not manual_lift_off):
         log.write("waiting for lift off")
         time.sleep(1)
-        if time.time()- t0 < LO_TIMEOUT:
-            log.wirte("LO by timeout")
-            break
     if not stop:
-        lift_off = True
+        status['LO'] = True
         log.write("*** LIFT OFF ***")
 
 
 
 threading.Thread(target=wait_for_lo).start()
-threading.Thread(target=wait_for_mug).start()
-
-
 monitor = ServoMonitor(increment=MONITOR_INTERVAL)
+
 
 # FIRST PHASE
 
 # before lift off we are connected via umbilical
 # allow user to remote control with keyboard commands
-lastch = ''
-while not lift_off:
-    ch = getkey().upper()
+while not status['LO']:
+    ch = None
+    while ch is None:
+        ch = getkey()
+    ch = ch.upper()
     match ch:
         case 'ESC':
             stop = True
@@ -450,8 +445,15 @@ while not lift_off:
         case 'H':
             heater.toggle()
             log.write('HEATER PWM active {} value {}'.format(heater.is_active,heater.value))
+        case 'X':
+            log.write("MANUAL LIFT OFF")
+            manual_lift_off = True
+            status['LO'] = True
         case '?':
             print ("menu:")
+            print ("left/right/up/down: change x/y velocity")
+            print ("pgup/pgdown: change z velocity (focus)")
+            print ("0: stop motors")
             print ("g : Goto position (one axis, in servo mode)")
             print ("w : Where are we? print current positions")
             print ('l : LED toggle')
@@ -468,7 +470,6 @@ while not lift_off:
                     else:
                         found = False
                 print(' ',poskey,pos)
-    lastch = ch
 
 
 #  SECOND PHASE
@@ -477,10 +478,47 @@ while not lift_off:
 #
 if not stop:
     stop_all_servos()
+    if not manual_lift_off:
+        # this is a real lift off, we wait for mug now
+        t0 = time.time()
+        while not GPIO.input(status_pins['mug']):
+            log.write("waiting for microgravity")
+            time.sleep(0.5)
+            if time.time() - t0 >= SOE_TIMEOUT:
+                log.write("SOE by timeout")
+                break
+        # now start the actual measurement program
+        status['mug'] = True
+        threading.Thread(target=microgravity_timeout).start()
+        microgravity_experiment()
 
-# shutdown:
 
-print('shutdown')
+
+## THIRD PHASE: MICROGRAVITY EXPERIMENT
+
+
+def microgravity_timeout ():
+    global status
+    t0 = time.time()
+    while GPIO.input(status_pins['mug']):
+        time.sleep(1)
+        if time.time() - t0 >= EXP_TIMEOUT:
+            log.write("SOE OFF by timeout")
+            break
+    status['mug'] = False
+    log.write("END OF MUG")
+
+
+def microgravity_experiment ():
+    while status['mug']:
+        # do stuff
+        pass
+
+
+
+## SHUTDOWN
+
+print('SHUTDOWN')
 
 led.off()
 heater.off()
