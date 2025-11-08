@@ -13,7 +13,7 @@ import max31865
 ## global settings
 
 GPIO_LO = 17                   # GPIO pin used for LO signal
-GPIO_MUG = 23                  # GPIO pin used for mug detection signal
+GPIO_MUG = 27                  # GPIO pin used for mug detection signal
 GPIO_LED = 13                  # GPIO pin used for LED (PWM)
 GPIO_HEATER = 12               # GPIO pin used for heater (PWM)
 GPIO_MISO = 9                  # MISO signal for SPI bus
@@ -45,6 +45,13 @@ SERVO_CMDS = {
   'PGUP':   { 'axis': 'Z', 'dir': -1 },
   'PGDOWN': { 'axis': 'Z', 'dir': +1 }
 }
+
+# signal configuration
+status_pins = { 'LO': GPIO_LO, 'mug': GPIO_MUG }
+status = { _: False for _ in status_pins }
+for pin in status_pins.values():
+    GPIO.setup(pin, GPIO.IN)
+
 
 ## global state variables
 
@@ -254,7 +261,7 @@ class LED():
         else:
             self.led.on()
             self.led_on = True
-        
+
 
 ## global objects
 
@@ -279,24 +286,36 @@ stop_all_servos()
 
 def wait_for_lo ():
     global lift_off
-    print("waiting for LO")
-    time.sleep(10) # should be while loop checking gpio.input(PIN_LO)
-    print("LO")
-    lift_off = True
+    global stop
+    t0 = time.time()
+    while (not GPIO.input(GPIO_LO)) and not stop:
+        log.write("waiting for lift off")
+        time.sleep(1)
+        if time.time()- t0 < LO_TIMEOUT:
+            log.wirte("LO by timeout")
+            break
+    if not stop:
+        lift_off = True
+        log.write("*** LIFT OFF ***")
 
 
 
-#threading.Thread(target=wait_for_lo).start()
-#threading.Thread(target=wait_for_soe).start()
+threading.Thread(target=wait_for_lo).start()
+threading.Thread(target=wait_for_mug).start()
 
 
 monitor = ServoMonitor(increment=MONITOR_INTERVAL)
 
+# FIRST PHASE
+
+# before lift off we are connected via umbilical
+# allow user to remote control with keyboard commands
 lastch = ''
-while True:
+while not lift_off:
     ch = getkey().upper()
     match ch:
         case 'ESC':
+            stop = True
             print("BYE")
             break
         case 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'PGUP' | 'PGDOWN':
@@ -450,6 +469,14 @@ while True:
                         found = False
                 print(' ',poskey,pos)
     lastch = ch
+
+
+#  SECOND PHASE
+
+# we have a lift-off, so remote control is off now
+#
+if not stop:
+    stop_all_servos()
 
 # shutdown:
 
