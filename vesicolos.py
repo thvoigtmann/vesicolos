@@ -310,9 +310,9 @@ while True:
         case '0':
             if stop_all_servos():
                 print ("stop")
-        case 'H' | 'F1' | 'F2' | 'F3' | 'F4':
+        case 'F1' | 'F2' | 'F3' | 'F4':
             stop_all_servos()
-            if ch == 'H':
+            if ch == 'H': # this is for the moment not used
                 poskey = 'homepos'
                 reset_wrap = True
             else:
@@ -325,8 +325,8 @@ while True:
                         monitor.wrap[ax] = 0
                     SERVOS[ax][poskey] = (monitor.pos[ax],monitor.wrap[ax])
                 print ('saved',poskey,monitor.pos,monitor.wrap)
-        case 'R' | '1' | '2' | '3' | '4':
-            if ch == 'R':
+        case '1' | '2' | '3' | '4':
+            if ch == 'R': # this is for the moment not used
                 poskey = 'homepos'
             else:
                 poskey = 'savepos'+ch
@@ -427,12 +427,16 @@ while True:
             print ("current position (servo)",servopos)
         case 'L':
             led.toggle()
+            log.write('LED {}'.format(['OFF','ON'][led.is_active]))
+        case 'H':
+            heater.toggle()
+            log.write('HEATER PWM active {} value {}'.format(heater.is_active,heater.value))
         case '?':
             print ("menu:")
-            print ("g : goto position (one axis, in servo mode)")
-            print ("w : print current positions")
-            print ('l : toggle LED')
-            print ('t : heater')
+            print ("g : Goto position (one axis, in servo mode)")
+            print ("w : Where are we? print current positions")
+            print ('l : LED toggle')
+            print ('h : Heater toggle')
             print ("F1-F4: store positions")
             print ("1-4: recall positions")
             for i in range(1,5):
