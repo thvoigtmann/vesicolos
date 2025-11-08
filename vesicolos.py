@@ -455,6 +455,15 @@ while True:
 
 led.off()
 heater.off()
+# the above two lines should switch off the LED and the heater
+# however, after program exit, they come on again magically
+# the stuff below is an (unsuccessful) attempt to prevent that
+led.close()
+heater.close()
+led = None
+heater = None
+GPIO.setup(GPIO_LED, GPIO.IN)
+GPIO.setup(GPIO_HEATER, GPIO.IN)
 
 # stop all servos, close port
 
