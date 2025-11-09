@@ -43,6 +43,13 @@ ST_MIDDLE = 2048               # middle position set by zeroing the servo
 ST_MAX_ID = 10                 # maximum servo ID to scan for
 ST_MOVING_ACC = 50             # default servo acceleration
 MONITOR_INTERVAL = 1           # interval in seconds for the motor monitor
+# for zstack: we have 1 turn = 4096 steps = 100mu
+# aim for slices 1mu apart => stepsize = 40 steps = 0.98mu
+# 20 such steps (half below, half above target) => scan depth 800steps=19.5mu
+# we also specify the waiting time on each z position in the stack
+MOTOR_DZ_STEPSIZE = 40
+MOTOR_DZ_STEPS = 20
+MOTOR_DZ_WAIT = 1
 
 # servo configuration for the three axes
 # values with lower-case names will be modified by the program
@@ -714,10 +721,31 @@ def microgravity_experiment ():
             Tcontrol.set_profile (Tprofile)
             # take some time, do z-stacks
             tmax = Tprofile['tmax'] + time.time()
+            if 'Z' in axes:
+                scs_id = SERVOS['Z']['ID']
+                comm, err = motorDriver.WheelMode(scs_id, False)
+                success = motorDriver.success(comm, err)
+                time.sleep(0.2)
+                pos, comm, err = motorDriver.ReadPos(scs_id)
+                success &= motorDriver.success(comm, err)
+                do_zstack = success
+                zpos = pos+MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
+                zcnt = 0
+                zdirection = -1
+                motorDriver.GotoPos (scs_id, zpos)
             while True:
                 # TODO zstack
+                if do_zstack:
+                    if zcnt >= MOTOR_DZ_STEPS:
+                        zdirection = -zdirection
+                        zcnt = 0
+                    motorDriver.GotoPos (scs_id, zpos+zdirection*MOTOR_DZ_STEPSIZE)
+                time.sleep(MOTOR_DZ_WAIT)
                 if time.time() > tmax:
                     break
+            if 'Z' in axes:
+                motorDriver.WheelMode(scs_id, True)
+                time.sleep(0.2)
             camera.stop()
 
 
