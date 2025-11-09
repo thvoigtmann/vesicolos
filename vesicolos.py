@@ -720,13 +720,14 @@ def CameraController ():
 # CORE MICROGRAVITY EXPERIMENT PROCEDURE
 
 def microgravity_experiment ():
-    positions = sorted(POSITIONS.keys())
+    positions = sorted(POSITIONS.keys() or ['default'])
     log.write("mug sequence: positions "+" / ".join(positions))
     while status['mug']:
         for pos in positions:
             camera = CameraController(camfile,pts=ptsfile,keys={'pos':pos})
             threading.Thread(target=camera.record).start()
-            move_to_stored_position (pos)
+            if not pos == 'default':
+                move_to_stored_position (pos)
             if pos in TEMPERATURES:
                 Tprofile = TEMPERATURES[pos]
             else:
