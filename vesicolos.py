@@ -806,7 +806,7 @@ if not stop:
 
 print('SHUTDOWN')
 
-if not camera is not None:
+if camera is not None:
     camera.stop()
     camera = None
 led.off()
