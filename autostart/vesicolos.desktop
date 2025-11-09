@@ -1,5 +1,5 @@
 [Desktop Entry]
 Type=Application
 Name=VESICOLOS
-Exec=~/Desktop/vesicolos/start.sh
+Exec=lxterminal -e '/bin/bash /home/user/Desktop/vesicolos/start.sh'
 Terminal=true
