@@ -170,6 +170,7 @@ class MotorDriver (scservo_sdk.sms_sts):
         return _success
 
 # monitor for servo positions
+# we also output signal status here for convenience
 class ServoMonitor():
     def __init__ (self, increment, silent=False):
         self.next_t = time.time()
@@ -184,6 +185,7 @@ class ServoMonitor():
             success = self.update_pos()
             if success and not self.silent:
                 print("-- position",self.pos,self.wrap,"--\r")
+                log.write(str(status))
             self.next_t += self.increment
             threading.Timer(self.next_t - time.time(), self._run).start()
     def update_pos (self,detect_wrap=True):
