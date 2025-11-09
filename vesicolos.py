@@ -390,7 +390,7 @@ class CameraController ():
         self.picam.configure(self.config)
         self.encoder = picamera2.encoders.H264Encoder(10000000)
     def __del__ (self):
-        self.picam.stop_recording()
+        self.stop()
     def record (self):
         frame = 0
         imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
@@ -404,6 +404,7 @@ class CameraController ():
     def stop (self):
         self.stop_ = True
         self.picam.stop_recording()
+        self.picam.close()
 
 
 
