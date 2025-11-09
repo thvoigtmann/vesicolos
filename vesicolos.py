@@ -374,15 +374,14 @@ class CameraController ():
     def __del__ (self):
         self.stop()
     def record (self):
-        frame = 0
+        frame = 0 # would only be needed if we write single frames ourselves
         imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
         pts = self.ptsfile.format(**self.imgpath_keys)
         self.picam.start_recording(self.encoder, imgfile, pts=pts)
-        while not self.stop_:
-            imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
-            print("cam recording",imgfile)
-            time.sleep(1)
-            frame += 1
+        print("cam recording",imgfile)
+        # should have some sort of interruptible loop here if we write
+        # single frames ourselves... (because our stop() method should
+        # be callable)
     def stop (self):
         self.stop_ = True
         self.picam.stop_recording()
@@ -685,13 +684,14 @@ if not stop:
 # flag goes off, cancelling possibly before
 def microgravity_timeout ():
     global status
-    signal.alarm(EXP_TIMEOUT)
-    while GPIO.input(STATUS_PINS['mug']) or manual_lift_off:
+    #signal.alarm(EXP_TIMEOUT)
+    t0 = time.time()
+    while (not GPIO.input(STATUS_PINS['mug'])) and not manual_lift_off:
         time.sleep(1)
-        #if time.time() - t0 >= EXP_TIMEOUT:
-        #    log.write("SOE OFF by timeout")
-        #    break
-    status['mug'] = False
+        if time.time() - t0 >= EXP_TIMEOUT:
+            log.write("SOE OFF by timeout")
+            break
+    status['mug'] = STATUS_PINS['mug'] # False
     signal.raise_signal(signal.SIGALRM)
     log.write("END OF MUG")
 
@@ -744,12 +744,13 @@ Tcontrol = TemperatureController()
 def microgravity_experiment ():
     positions = sorted(POSITIONS.keys() or ['default'])
     log.write("mug sequence: positions "+" / ".join(positions))
+    led.on()
     while status['mug'] or manual_lift_off:
         for pos in positions:
             camera = CameraController(camfile,pts=ptsfile,keys={'pos':pos})
             threading.Thread(target=camera.record).start()
             if not pos == 'default':
-                move_to_stored_position (pos)
+                move_to_stored_position (pos) # DEBUG
             if pos in TEMPERATURES:
                 Tprofile = TEMPERATURES[pos]
             else:
@@ -768,13 +769,17 @@ def microgravity_experiment ():
                 zpos = pos+MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
                 zcnt = 0
                 zdirection = -1
-                motorDriver.GotoPos (scs_id, zpos)
+                print('ZSTACK',pos,zpos)
+                #motorDriver.GotoPos (scs_id, zpos) # DEBUG
             while True:
                 if do_zstack:
                     if zcnt >= MOTOR_DZ_STEPS:
                         zdirection = -zdirection
                         zcnt = 0
-                    motorDriver.GotoPos (scs_id, zpos+zdirection*MOTOR_DZ_STEPSIZE)
+                    zcnt += 1
+                    zpos += zdirection*MOTOR_DZ_STEPS
+                    print('ZSTACK',pos,zpos)
+                    #motorDriver.GotoPos (scs_id, zpos+zdirection*MOTOR_DZ_STEPSIZE) # DEBUG
                 time.sleep(MOTOR_DZ_WAIT)
                 if time.time() > tmax:
                     break
@@ -795,7 +800,7 @@ if not stop:
     try:
         microgravity_experiment()
     except MicrogravityTimeout as msg:
-        log.write(msg)
+        log.write(str(msg))
     signal.alarm(0) # clear any remaining ALRM signals
 
 
@@ -804,8 +809,9 @@ if not stop:
 
 print('SHUTDOWN')
 
-if not camera is None:
+if not camera is not None:
     camera.stop()
+    camera = None
 led.off()
 heater.off()
 # the above two lines should switch off the LED and the heater
