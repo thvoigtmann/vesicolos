@@ -500,8 +500,9 @@ camera = None
 recordings = []
 while not status['LO']:
     ch = None
-    while ch is None:
-        ch = getkey()
+    ch = getkey()
+    if ch is None:
+        continue
     ch = ch.upper()
     match ch:
         case 'ESC':
@@ -649,21 +650,16 @@ while not status['LO']:
 
 # we have a lift-off, so remote control is off now
 
-print('RECEIVED LIFTOFF')
-
 if not stop:
     stop_all_servos()
-    print('WAITING FOR LIFTOFF')
     if not manual_lift_off:
         # this is a real lift off, we wait for mug now
-        print('REALLY WAITING FOR LIFTOFF')
         t0 = time.time()
         # we record the ascent for sure, but if the user started before
         # we do not interrupt them
         if camera is None:
             camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff'})
             threading.Thread(target=camera.record).start()
-        print('ACTUALLY WAITING FOR LIFTOFF')
         while not GPIO.input(STATUS_PINS['mug']):
             log.write("waiting for microgravity")
             time.sleep(0.5)
@@ -710,7 +706,8 @@ class TemperatureController ():
     def __init__ (self):
         self.set_profile (TEMPERATURES['default'])
     def __del__ (self):
-        heater.off()
+        if heater is not None:
+            heater.off()
     def set_profile (self, profile):
         self.Tmin, self.Tmax, self.dt, self.ts = \
             profile['Tmin'], profile['Tmax'], profile['dt'], profile['ts']
