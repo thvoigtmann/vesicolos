@@ -115,6 +115,7 @@ try:
     print("re-loaded from restart file")
 except:
     pass
+prog_end = False
 def save_restart ():
     global prog_end
     while not prog_end:
@@ -127,8 +128,8 @@ threading.Thread(target=save_restart).start()
 
 
 # LO/mug signal configuration
-status = { _: False for _ in status_pins }
-for pin in status_pins.values():
+status = { _: False for _ in STATUS_PINS }
+for pin in STATUS_PINS.values():
     GPIO.setup(pin, GPIO.IN)
 
 
@@ -137,7 +138,6 @@ for pin in status_pins.values():
 stop = False
 manual_lift_off = False
 debug = False
-prog_end = False
 
 
 
@@ -385,7 +385,7 @@ def wait_for_lo ():
     global status, manual_lift_off
     global stop
     t0 = time.time()
-    while (not GPIO.input(status_pins['LO'])) \
+    while (not GPIO.input(STATUS_PINS['LO'])) \
         and (not stop) and (not manual_lift_off):
         log.write("waiting for lift off")
         time.sleep(1)
@@ -609,7 +609,7 @@ if not stop:
     if not manual_lift_off:
         # this is a real lift off, we wait for mug now
         t0 = time.time()
-        while not GPIO.input(status_pins['mug']):
+        while not GPIO.input(STATUS_PINS['mug']):
             log.write("waiting for microgravity")
             time.sleep(0.5)
             if time.time() - t0 >= SOE_TIMEOUT:
@@ -641,7 +641,7 @@ if not stop:
 def microgravity_timeout ():
     global status
     signal.alarm(EXP_TIMEOUT)
-    while GPIO.input(status_pins['mug']):
+    while GPIO.input(STATUS_PINS['mug']):
         time.sleep(1)
         #if time.time() - t0 >= EXP_TIMEOUT:
         #    log.write("SOE OFF by timeout")
