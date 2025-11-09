@@ -20,8 +20,6 @@ import scservo_sdk                         # used for motor driver
 # for MAPHEUS-16 we expect microgravity to last not longer than 450 seconds
 SOE_TIMEOUT = 65               # timeout to start if no mug signal comes
 EXP_TIMEOUT = 450              # timeout for duration of experiment
-SOE_TIMEOUT = 6               # timeout to start if no mug signal comes
-EXP_TIMEOUT = 10              # timeout for duration of experiment
 
 # hardware settings
 # GPIO pin layout used
@@ -679,21 +677,21 @@ if not stop:
 ## THIRD PHASE: MICROGRAVITY EXPERIMENT
 
 
-# microgravity timeout: handled by UNIX ALRM signal for a timeout in seconds
+# microgravity timeout: handled by UNIX ALRM signal
 # but the loop here polls the mug pin and sends the signal once that
 # flag goes off, cancelling possibly before
 def microgravity_timeout ():
     global status
     #signal.alarm(EXP_TIMEOUT)
     t0 = time.time()
-    while (not GPIO.input(STATUS_PINS['mug'])) and not manual_lift_off:
+    while GPIO.input(STATUS_PINS['mug']) or manual_lift_off:
         time.sleep(1)
         if time.time() - t0 >= EXP_TIMEOUT:
             log.write("SOE OFF by timeout")
             break
-    status['mug'] = STATUS_PINS['mug'] # False
-    signal.raise_signal(signal.SIGALRM)
+    status['mug'] = bool(GPIO.input(STATUS_PINS['mug'])) or manual_lift_off
     log.write("END OF MUG")
+    signal.raise_signal(signal.SIGALRM)
 
 # the SIGALRM handler is responsible for raising the exception that will
 # interrupt the microgravity_experiment() function
@@ -750,7 +748,7 @@ def microgravity_experiment ():
             camera = CameraController(camfile,pts=ptsfile,keys={'pos':pos})
             threading.Thread(target=camera.record).start()
             if not pos == 'default':
-                move_to_stored_position (pos) # DEBUG
+                move_to_stored_position (pos)
             if pos in TEMPERATURES:
                 Tprofile = TEMPERATURES[pos]
             else:
@@ -769,8 +767,7 @@ def microgravity_experiment ():
                 zpos = pos+MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
                 zcnt = 0
                 zdirection = -1
-                print('ZSTACK',pos,zpos)
-                #motorDriver.GotoPos (scs_id, zpos) # DEBUG
+                motorDriver.GotoPos (scs_id, zpos)
             while True:
                 if do_zstack:
                     if zcnt >= MOTOR_DZ_STEPS:
@@ -779,7 +776,7 @@ def microgravity_experiment ():
                     zcnt += 1
                     zpos += zdirection*MOTOR_DZ_STEPS
                     print('ZSTACK',pos,zpos)
-                    #motorDriver.GotoPos (scs_id, zpos+zdirection*MOTOR_DZ_STEPSIZE) # DEBUG
+                    motorDriver.GotoPos (scs_id, zpos+zdirection*MOTOR_DZ_STEPSIZE) 
                 time.sleep(MOTOR_DZ_WAIT)
                 if time.time() > tmax:
                     break
