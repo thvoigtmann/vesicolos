@@ -712,10 +712,13 @@ def microgravity_experiment ():
             else:
                 Tprofile = TEMPERATURES['default']
             Tcontrol.set_profile (Tprofile)
-            # wait some time
-            time.sleep(Tprofile['tmax'])
+            # take some time, do z-stacks
+            tmax = Tprofile['tmax'] + time.time()
+            while True:
+                # TODO zstack
+                if time.time() > tmax:
+                    break
             camera.stop()
-            pass
 
 
 
