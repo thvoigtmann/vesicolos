@@ -536,6 +536,7 @@ def mug_timeout_handler (signum, frame):
         raise MicrogravityTimeout("END OF EXPERIMENT")
 
 
+
 # CORE MICROGRAVITY EXPERIMENT PROCEDURE
 
 def microgravity_experiment ():
@@ -543,7 +544,11 @@ def microgravity_experiment ():
     log.write("mug sequence: positions "+" / ".join(positions))
     while status['mug']:
         for pos in positions:
+            move_to_stored_position (pos)
+            # TODO: start camera recording, temperature ramp
             pass
+
+
 
 
 
