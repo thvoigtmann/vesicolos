@@ -1,4 +1,5 @@
 #!/bin/bash
+cd $HOME/Desktop/vesicolos
 source venv/bin/activate
 python3 ./vesicolos.py
 # the following to keep the heater off when program exits
