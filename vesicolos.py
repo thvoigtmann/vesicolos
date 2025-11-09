@@ -98,7 +98,7 @@ tstamp = time.strftime("%Y-%m-%d-%H-%M-%S")
 restartfile = 'vesicolos-restart.json'
 logfile = tstamp+'/vesicolos.log'
 temperature_logfile = tstamp+'/temperature.log'
-camfile = tstamp+'/capture-{pos}-{frame:06d}.jpg'
+camfile = tstamp+'/capture-{pos}.h264' # could use {frame:06d}
 ptsfile = tstamp+'/capture-{pos}-pts.txt'
 # make output directory
 try:
@@ -381,7 +381,7 @@ stop_all_servos()
 # camera controller, used later
 class CameraController ():
     def __init__ (self, filename, pts=None, keys={}):
-        self.stop = False
+        self.stop_ = False
         self.imgpath = filename
         self.imgpath_keys = keys
         self.ptsfile = pts
@@ -396,13 +396,13 @@ class CameraController ():
         imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
         pts = self.ptsfile.format(**self.imgpath_keys)
         self.picam.start_recording(self.encoder, imgfile, pts=pts)
-        while not self.stop:
+        while not self.stop_:
             imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
             print("cam recording",imgfile)
             time.sleep(1)
             frame += 1
     def stop (self):
-        self.stop = True
+        self.stop_ = True
         self.picam.stop_recording()
 
 
@@ -795,7 +795,7 @@ if not stop:
 
 print('SHUTDOWN')
 
-if camera:
+if not camera is None:
     camera.stop()
 led.off()
 heater.off()
