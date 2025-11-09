@@ -62,10 +62,10 @@ SERVOS = {
   'Z': { 'ID': 1, 'DEFAULT_SPEED':  200, 'SPEED_INC':  40, 'current_speed': 0 },
 }
 SERVO_CMDS = {
-  'UP':     { 'axis': 'Y', 'dir': +1 },
-  'DOWN':   { 'axis': 'Y', 'dir': -1 },
-  'LEFT':   { 'axis': 'X', 'dir': -1 },
-  'RIGHT':  { 'axis': 'X', 'dir': +1 },
+  'LEFT':   { 'axis': 'Y', 'dir': +1 },
+  'RIGHT':  { 'axis': 'Y', 'dir': -1 },
+  'DOWN':   { 'axis': 'X', 'dir': -1 },
+  'UP':     { 'axis': 'X', 'dir': +1 },
   'PGUP':   { 'axis': 'Z', 'dir': -1 },
   'PGDOWN': { 'axis': 'Z', 'dir': +1 }
 }
@@ -756,17 +756,20 @@ def microgravity_experiment ():
             Tcontrol.set_profile (Tprofile)
             # take some time, do z-stacks
             tmax = Tprofile['tmax'] + time.time()
+            do_zstack = False
             if 'Z' in axes:
                 scs_id = SERVOS['Z']['ID']
                 comm, err = motorDriver.WheelMode(scs_id, False)
-                success = motorDriver.success(comm, err)
+                # do_zstack shall only be true if we don't have
+                # motor errors
+                do_zstack = motorDriver.success(comm, err)
                 time.sleep(0.2)
                 pos, comm, err = motorDriver.ReadPos(scs_id)
-                success &= motorDriver.success(comm, err)
-                do_zstack = success
-                zpos = pos+MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
+                do_zstack &= motorDriver.success(comm, err)
+                zpos = pos + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
                 zcnt = 0
                 zdirection = -1
+                print('ZSTACK',pos,zpos)
                 motorDriver.GotoPos (scs_id, zpos)
             while True:
                 if do_zstack:
