@@ -98,7 +98,7 @@ tstamp = time.strftime("%Y-%m-%d-%H-%M-%S")
 restartfile = 'vesicolos-restart.json'
 logfile = tstamp+'/vesicolos.log'
 temperature_logfile = tstamp+'/temperature.log'
-camfile = tstamp+'/capture-{pos}-{frame:%06d}.jpg'
+camfile = tstamp+'/capture-{pos}-{frame:06d}.jpg'
 ptsfile = tstamp+'/capture-{pos}-pts.txt'
 # make output directory
 try:
@@ -185,6 +185,7 @@ class Logger():
     def __init__ (self, logfile):
         self.logfile = open(logfile, 'w')
         self.logfile.write("*** START *** "+self.tstamp())
+        self.logfile.flush()
     def __del__ (self):
         self.logfile.write("*** END   *** "+self.tstamp())
         self.logfile.close()
@@ -192,9 +193,11 @@ class Logger():
         return time.strftime("%Y-%m-%d %H:%M:%S")
     def write (self, msg):
         self.logfile.write(self.tstamp()+" "+msg)
+        self.logfile.flush()
         print(msg)
     def err (self, msg):
         self.logfile.write("*** ERR *** "+self.tstamp()+" "+msg)
+        self.lofgile.flush()
         print("*** ERR ***",msg)
 
 ## motor driver and motor handling stuff
@@ -375,6 +378,33 @@ except Exception as err:
 axes = find_all_servos()
 stop_all_servos()
 
+# camera controller, used later
+class CameraController ():
+    def __init__ (self, filename, pts=None, keys={}):
+        self.stop = False
+        self.imgpath = filename
+        self.imgpath_keys = keys
+        self.ptsfile = pts
+        self.picam = picamera2.Picamera2()
+        self.config = self.picam.create_video_configuration()
+        self.picam.configure(self.config)
+        self.encoder = picamera2.encoders.H264Encoder(10000000)
+    def __del__ (self):
+        self.picam.stop_recording()
+    def record (self):
+        frame = 0
+        imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
+        pts = self.ptsfile.format(**self.imgpath_keys)
+        self.picam.start_recording(self.encoder, imgfile, pts=pts)
+        while not self.stop:
+            imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
+            print("cam recording",imgfile)
+            time.sleep(1)
+            frame += 1
+    def stop (self):
+        self.stop = True
+        self.picam.stop_recording()
+
 
 
 # implement waiting for lift-off
@@ -406,7 +436,7 @@ monitor = ServoMonitor(increment=MONITOR_INTERVAL)
 # a key point here is to be able to move the motors, store some
 # positions of interest, and be able to return to them automatically
 # that latter part is a bit tricky, it is wrapped in its own function:
-def move_to_stored_position ():
+def move_to_stored_position (poskey):
     # to go to a defined position:
     # 1. calculate delta in wheel mode
     # 2. go to servo mode, set current as middle position 2048
@@ -566,7 +596,7 @@ while not status['LO']:
                 tkey_defaults = tkey
             else:
                 tkey_defaults = 'default'
-            Tmin, Tmax, dt, ts, tmax = (TEMPERATURS[tkey_defaults][_] \
+            Tmin, Tmax, dt, ts, tmax = (TEMPERATURES[tkey_defaults][_] \
                 for _ in ['Tmin','Tmax','dt','ts','tmax'])
             Tminstr = input("Tmin = [{}]".format(Tmin))
             Tmaxstr = input("Tmax = [{}]".format(Tmax))
@@ -617,33 +647,6 @@ while not status['LO']:
 #  SECOND PHASE
 
 # we have a lift-off, so remote control is off now
-# but we get ready to use the camera already
-
-def CameraController ():
-    def __init__ (self, filename, pts=None, keys={}):
-        self.stop = False
-        self.imgpath = filename
-        self.imgpath_keys = keys
-        self.ptsfile = pts
-        self.picam = picamera2.Picamera2()
-        self.config = self.picam.create_video_configuration()
-        self.picam.configure(self.config)
-        self.encoder = picamera2.encoders.H264Encoder(10000000)
-    def __del__ (self):
-        self.picam.stop_recording()
-    def record (self):
-        frame = 0
-        imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
-        pts = self.ptsfile.format(self.imgpath_keys)
-        self.picam.start_recording(self.encoder, imgfile, pts=pts)
-        while not self.stop:
-            imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
-            print("cam recording",imgfile)
-            time.sleep(1)
-            frame += 1
-    def stop (self):
-        self.stop = True
-        self.picam.stop_recording()
 
 
 if not stop:
@@ -792,6 +795,8 @@ if not stop:
 
 print('SHUTDOWN')
 
+if camera:
+    camera.stop()
 led.off()
 heater.off()
 # the above two lines should switch off the LED and the heater
