@@ -603,37 +603,55 @@ while not status['LO']:
 #  SECOND PHASE
 
 # we have a lift-off, so remote control is off now
-#
+# but we get ready to use the camera already
+
+def CameraController ():
+    def __init__ (self, filename, pts=None, keys={}):
+        self.stop = False
+        self.imgpath = filename
+        self.imgpath_keys = keys
+        self.ptsfile = pts
+        self.picam = picamera2.Picamera2()
+        self.config = self.picam.create_video_configuration()
+        self.picam.configure(self.config)
+        self.encoder = picamera2.encoders.H264Encoder(10000000)
+    def __del__ (self):
+        self.picam.stop_recording()
+    def record (self):
+        frame = 0
+        imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
+        pts = self.ptsfile.format(self.imgpath_keys)
+        self.picam.start_recording(self.encoder, imgfile, pts=pts)
+        while not self.stop:
+            imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
+            print("cam recording",imgfile)
+            time.sleep(1)
+            frame += 1
+    def stop (self):
+        self.stop = True
+        self.picam.stop_recording()
+
+
 if not stop:
     stop_all_servos()
     if not manual_lift_off:
         # this is a real lift off, we wait for mug now
         t0 = time.time()
+        camera = CameraController(camfile,pts=ptsfile,keys={'pos':'launch'})
+        threading.Thread(target=camera.record).start()
         while not GPIO.input(STATUS_PINS['mug']):
             log.write("waiting for microgravity")
             time.sleep(0.5)
             if time.time() - t0 >= SOE_TIMEOUT:
                 log.write("SOE by timeout")
                 break
+        camera.stop()
         status['mug'] = True
-    # now start the actual measurement program
-    # timeout handling is done by SIGALRM here
-    # we now also need temperature control
-    signal.signal(signal.SIGALRM, mug_timeout_handler)
-    threading.Thread(target=microgravity_timeout).start()
-    temp_controller = TemperatureController ()
-    threading.Thread(target=temp_controller.control).start()
-    try:
-        microgravity_experiment()
-    except MicrogravityTimeout as msg:
-        log.write(msg)
-    signal.alarm(0) # clear any remaining ALRM signals
 
 
 
 ## THIRD PHASE: MICROGRAVITY EXPERIMENT
 
-# this code here is actually called from above
 
 # microgravity timeout: handled by UNIX ALRM signal for a timeout in seconds
 # but the loop here polls the mug pin and sends the signal once that
@@ -690,31 +708,6 @@ class TemperatureController ():
             time.sleep(1)
 
 
-def CameraController ():
-    def __init__ (self, filename, pts=None, keys={}):
-        self.stop = False
-        self.imgpath = filename
-        self.imgpath_keys = keys
-        self.ptsfile = pts
-        self.picam = picamera2.Picamera2()
-        self.config = self.picam.create_video_configuration()
-        self.picam.configure(self.config)
-        self.encoder = picamera2.encoders.H264Encoder(10000000)
-    def __del__ (self):
-        self.picam.stop_recording()
-    def record (self):
-        frame = 0
-        imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
-        pts = self.ptsfile.format(self.imgpath_keys)
-        self.picam.start_recording(self.encoder, imgfile, pts=pts)
-        while not self.stop:
-            imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
-            print("cam recording DUMMY TODO",imgfile)
-            time.sleep(1)
-            frame += 1
-    def stop (self):
-        self.stop = True
-        self.picam.stop_recording()
 
 
 # CORE MICROGRAVITY EXPERIMENT PROCEDURE
@@ -761,6 +754,20 @@ def microgravity_experiment ():
                 time.sleep(0.2)
             camera.stop()
 
+
+if not stop:
+    # now start the actual measurement program
+    # timeout handling is done by SIGALRM here
+    # we now also need temperature control
+    signal.signal(signal.SIGALRM, mug_timeout_handler)
+    threading.Thread(target=microgravity_timeout).start()
+    temp_controller = TemperatureController ()
+    threading.Thread(target=temp_controller.control).start()
+    try:
+        microgravity_experiment()
+    except MicrogravityTimeout as msg:
+        log.write(msg)
+    signal.alarm(0) # clear any remaining ALRM signals
 
 
 
