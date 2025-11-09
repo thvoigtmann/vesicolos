@@ -56,7 +56,7 @@ can be found.
 Inside this folder, a python virtual environment needs to be created
 as follows:
 ```bash
-python3 -m venv venv
+python3 -m venv --system-site-packages venv
 . venv/bin/activate
 ```
 Then install the required python libraries found in `requirements.txt`.
