@@ -1,6 +1,7 @@
 import sys, os, tty, termios, select
 import time
 import threading, signal
+import json
 
 import RPi.GPIO as GPIO
 import gpiozero                            # used for PWM (LED and heater)
@@ -60,6 +61,8 @@ SERVO_CMDS = {
   'PGDOWN': { 'axis': 'Z', 'dir': +1 }
 }
 
+# user-enty variables: the values here will be affected by the user interaction
+# these are stored in a restart file and re-read from there if possible
 # user-saved positions will be stored here
 POSITIONS = {}
 # for each user-saved position we can define our own temperature ramps
@@ -81,6 +84,38 @@ def T(t,Tmin,Tmax,dt):
     return Tmin + (Tmax - Tmin) * tau/dt
 
 
+# filenames for output
+tstamp = time.strftime("%Y-%m-%d-%H-%M-%S")
+restartfile = 'vesicolos-restart.json'
+logfile = tstamp+'/vesicolos.log'
+temperature_logfile = tstamp+'/temperature.log'
+camfile = tstamp+'/vesicolos-{pos}-{frame:%06d}.jpg'
+# make output directory
+try:
+    os.mkdir(tstamp)
+except:
+    print ("ERROR cannot write output")
+# try re-reading saved parameters on restart
+# to catch power cycles
+try:
+    with open(restartfile, 'r') as f:
+        data = json.load(f)
+        TEMPERATURES = data['TEMPERATURES']
+        POSITIONS = data['POSITIONS']
+    print("re-loaded from restart file")
+except:
+    pass
+def save_restart ():
+    global prog_end
+    while not prog_end:
+        with open(restartfile, 'w') as f:
+            json.dump({'TEMPERATURES': TEMPERATURES, 'POSITIONS': POSITIONS}, \
+                      f, sort_keys=True, indent=4)
+        time.sleep(10)
+threading.Thread(target=save_restart).start()
+
+
+
 # LO/mug signal configuration
 status = { _: False for _ in status_pins }
 for pin in status_pins.values():
@@ -92,6 +127,7 @@ for pin in status_pins.values():
 stop = False
 manual_lift_off = False
 debug = False
+prog_end = False
 
 
 
@@ -317,8 +353,8 @@ cs = digitalio.DigitalInOut(GPIO_TEMP)
 temp_sensor = adafruit_max31865.MAX31865(spi, cs, \
     rtd_nominal=RTD_NOMINAL, ref_resistor=RTD_REFERENCE, wires=RTD_WIRES)
                                         
-log = Logger("vesicolos.log")
-temperature_log = Logger("vesicolos_temperature.log")
+log = Logger(logfile)
+temperature_log = Logger(temperature_logfile)
 
 # motor driver, UART taken care of by the WaveShare SCServo kit (patched)
 try:
@@ -645,10 +681,19 @@ class TemperatureController ():
 
 
 def CameraController ():
-    def __init__ (self):
-        pass
+    def __init__ (self, filename, keys={}):
+        self.stop = False
+        self.imgpath = filename
+        self.imgpath_keys = keys
     def record (self):
-        pass
+        frame = 0
+        while not self.stop:
+            imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
+            print("cam recording DUMMY TODO",imgfile)
+            time.sleep(1)
+            frame += 1
+    def stop (self):
+        self.stop = True
 
 
 # CORE MICROGRAVITY EXPERIMENT PROCEDURE
@@ -659,7 +704,7 @@ def microgravity_experiment ():
     while status['mug']:
         for pos in positions:
             # TODO: start camera recording
-            camera = CameraController()
+            camera = CameraController(camfile,keys={'pos':pos})
             threading.Thread(target=camera.record).start()
             move_to_stored_position (pos)
             if pos in TEMPERATURES:
@@ -703,5 +748,6 @@ for ax in axes:
     motorDriver.WheelMode(SERVOS[ax]['ID'], True)
 
 monitor.stop()
+prog_end = True
 
 print('END')
