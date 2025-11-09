@@ -20,6 +20,8 @@ import scservo_sdk                         # used for motor driver
 # for MAPHEUS-16 we expect microgravity to last not longer than 450 seconds
 SOE_TIMEOUT = 65               # timeout to start if no mug signal comes
 EXP_TIMEOUT = 450              # timeout for duration of experiment
+SOE_TIMEOUT = 6               # timeout to start if no mug signal comes
+EXP_TIMEOUT = 10              # timeout for duration of experiment
 
 # hardware settings
 # GPIO pin layout used
@@ -105,26 +107,6 @@ try:
     os.mkdir(tstamp)
 except:
     print ("ERROR cannot write output")
-# try re-reading saved parameters on restart
-# to catch power cycles
-try:
-    with open(restartfile, 'r') as f:
-        data = json.load(f)
-        TEMPERATURES = data['TEMPERATURES']
-        POSITIONS = data['POSITIONS']
-    print("re-loaded from restart file")
-except:
-    pass
-prog_end = False
-def save_restart ():
-    global prog_end
-    while not prog_end:
-        with open(restartfile, 'w') as f:
-            json.dump({'TEMPERATURES': TEMPERATURES, 'POSITIONS': POSITIONS}, \
-                      f, sort_keys=True, indent=4)
-        time.sleep(10)
-threading.Thread(target=save_restart).start()
-
 
 
 # LO/mug signal configuration
@@ -427,6 +409,29 @@ def wait_for_lo ():
 
 threading.Thread(target=wait_for_lo).start()
 monitor = ServoMonitor(increment=MONITOR_INTERVAL)
+
+# try re-reading saved parameters on restart
+# to catch power cycles
+# this is done here so that we can adjust our wraparound counter as well
+try:
+    with open(restartfile, 'r') as f:
+        data = json.load(f)
+        TEMPERATURES = data['TEMPERATURES']
+        POSITIONS = data['POSITIONS']
+        monitor.wrap = data['wrap']
+    print("re-loaded from restart file")
+except:
+    pass
+prog_end = False
+def save_restart ():
+    global prog_end, monitor
+    while not prog_end:
+        with open(restartfile, 'w') as f:
+            json.dump({'TEMPERATURES': TEMPERATURES, 'POSITIONS': POSITIONS, \
+                    'wrap':monitor.wrap}, f, sort_keys=True, indent=4)
+        time.sleep(10)
+threading.Thread(target=save_restart).start()
+
 
 
 # FIRST PHASE
