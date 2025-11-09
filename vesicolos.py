@@ -3,27 +3,39 @@ import time
 import threading, signal
 
 import RPi.GPIO as GPIO
-import gpiozero
+import gpiozero                            # used for PWM (LED and heater)
+import board, digitalio, adafruit_max31865 # used for temperature sensor
 GPIO.setmode(GPIO.BCM)
 
 # local repositories
-import scservo_sdk
-import max31865
+import scservo_sdk                         # used for motor driver
 
 ## global settings
 
-STATUS_PINS = { 'LO': 17, 'mug': 27 } # GPIO pins used for signals
+# timeout settings, adapted to expected flight trajectory
+# we are pretty sure to be in microgravity after 65 seconds
+# for MAPHEUS-16 we expect microgravity to last not longer than 450 seconds
 SOE_TIMEOUT = 65               # timeout to start if no mug signal comes
 EXP_TIMEOUT = 450              # timeout for duration of experiment
+
+# hardware settings
+# GPIO pin layout used
+STATUS_PINS = { 'LO': 17, 'mug': 27 } # GPIO pins used for signals
 GPIO_LED = 13                  # GPIO pin used for LED (PWM)
 GPIO_HEATER = 12               # GPIO pin used for heater (PWM)
-GPIO_MISO = 9                  # MISO signal for SPI bus
-GPIO_MOSI = 10                 # MOSI signal for SPI bus
-GPIO_CLK = 11                  # CLK signal for SPI bus
-GPIO_CS1 = 6                   # cable select for temp sensor (SPI)
+GPIO_TEMP = board.D5           # cable select for temp sensor (SPI) on GPIO 5
+# SPI bus defaults, values here are not used in the code below for now:
+#GPIO_MISO = 9                 # MISO signal for SPI bus
+#GPIO_MOSI = 10                # MOSI signal for SPI bus
+#GPIO_CLK = 11                 # CLK signal for SPI bus
+# settings for temperature sensor
+RTD_NOMINAL = 1000             # temp sensor is a PT1000
+RTD_REFERENCE = 4300           # MAX31865 board uses 4300ohm reference
+RTD_WIRES = 2                  # temp sensor is attached in 2-wire setup
+# motor settings
 ST_BAUDRATE = 1000000          # UART baud rate for ST servo driver
 ST_DEVICE = '/dev/ttyAMA0'     # UART device (Raspberry 5)
-#ST_DEVICE = '/dev/ttyS0'       # UART device (Raspberry 4)
+#ST_DEVICE = '/dev/ttyS0'      # UART device (Raspberry 4)
 ST_STEPS = 4096                # steps per full turn in the servo
 ST_MAX_WRAPS = 7               # how many turns the servo can resolve
 ST_MIDDLE = 2048               # middle position set by zeroing the servo
@@ -33,6 +45,7 @@ MONITOR_INTERVAL = 1           # interval in seconds for the motor monitor
 
 # servo configuration for the three axes
 # values with lower-case names will be modified by the program
+# the IDs are hard-coded in the motors
 SERVOS = {
   'X': { 'ID': 0, 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
   'Y': { 'ID': 9, 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
@@ -50,18 +63,25 @@ SERVO_CMDS = {
 # user-saved positions will be stored here
 POSITIONS = {}
 # for each user-saved position we can define our own temperature ramps
-# defined by Tmin, Tmax, dt (ramp time)
-# via T(t) = Tmin + (Tmax-Tmin)*t/dt
-TEMPERATURES = { 'default': { 'Tmin': 25, 'Tmax': 30, 'dt': 10 } }
+# defined by Tmin, Tmax, dt (ramp time) and a start time ts
+# (where here all times are measured in reference to the time where
+# the temperature control of this profile became active)
+# via T(t) = Tmin + (Tmax-Tmin)*(t-ts)/dt
+# we also defined a maximum time to spend in this ramp
+# this is only used as a waiting time, not by the temperature controller
+TEMPERATURES = {
+  'default': { 'Tmin': 25, 'Tmax': 30, 'dt': 10, 'ts': 0, 'tmax': 20 }
+}
 def T(t,Tmin,Tmax,dt):
-    if t <= 0:
+    tau = t-ts
+    if tau <= 0:
         return Tmin
-    if t >= dt:
+    if tau >= dt:
         return Tmax
-    return Tmin + (Tmax - Tmin) * t/dt
+    return Tmin + (Tmax - Tmin) * tau/dt
 
 
-# signal configuration
+# LO/mug signal configuration
 status = { _: False for _ in status_pins }
 for pin in status_pins.values():
     GPIO.setup(pin, GPIO.IN)
@@ -85,6 +105,10 @@ key_mapping = {
   127: 'backspace'
 }
 
+# method to read keyboard input
+# adapted to make this non-blocking (i.e., return after specified timeout)
+# this allows the main loop waiting for user input to recognize
+# if a status variable changed even if the user doesn't do anything
 def getkey(timeout=1):
     """Read key from keyboard using low-level os.read()
        Return string describing the key.
@@ -112,8 +136,8 @@ def getkey(timeout=1):
 ## logging
 
 class Logger():
-    def __init__ (self):
-        self.logfile = open("vesicolos.log", 'w')
+    def __init__ (self, logfile):
+        self.logfile = open(logfile, 'w')
         self.logfile.write("*** START *** "+self.tstamp())
     def __del__ (self):
         self.logfile.write("*** END   *** "+self.tstamp())
@@ -196,7 +220,7 @@ class ServoMonitor():
             success = self.update_pos()
             if success and not self.silent:
                 print("-- position",self.pos,self.wrap,"--\r")
-                log.write(str(status))
+                log.write(str(status)+" T="+str(temp_sensor.temperature))
             self.next_t += self.increment
             threading.Timer(self.next_t - time.time(), self._run).start()
     def update_pos (self,detect_wrap=True):
@@ -279,14 +303,24 @@ class LED():
 
 ## global objects
 
+# LED uses hardware PWM, taken care of by the gpiozero module
 led = gpiozero.LED(GPIO_LED)
 led.off()
 
+# heater uses hardware PWM, taken care of by the gpiozero module
 heater = gpiozero.PWMOutputDevice(GPIO_HEATER)
 heater.off()
 
-log = Logger()
+# temperature sensor, SPI on a MAX31865 board, taken care of by adafruit module
+spi = board.SPI()
+cs = digitalio.DigitalInOut(GPIO_TEMP)
+temp_sensor = adafruit_max31865.MAX31865(spi, cs, \
+    rtd_nominal=RTD_NOMINAL, ref_resistor=RTD_REFERENCE, wires=RTD_WIRES)
+                                        
+log = Logger("vesicolos.log")
+temperature_log = Logger("vesicolos_temperature.log")
 
+# motor driver, UART taken care of by the WaveShare SCServo kit (patched)
 try:
     motorDriver = MotorDriver (ST_DEVICE, ST_BAUDRATE)
 except Exception as err:
@@ -297,6 +331,10 @@ stop_all_servos()
 
 
 
+# implement waiting for lift-off
+# a separate thread checks the GPIO pin every second, writes status variable
+# the part of the main program that runs before LO waits for user input
+# and exits if the status variable changes
 def wait_for_lo ():
     global status, manual_lift_off
     global stop
@@ -308,7 +346,6 @@ def wait_for_lo ():
     if not stop:
         status['LO'] = True
         log.write("*** LIFT OFF ***")
-
 
 
 threading.Thread(target=wait_for_lo).start()
@@ -471,16 +508,28 @@ while not status['LO']:
             log.write('LED {}'.format(['OFF','ON'][led.is_active]))
         case 'H':
             heater.toggle()
-            log.write('HEATER PWM active {} value {}'.format(heater.is_active,heater.value))
+            log.write('HEATER PWM active {} value {}'\
+                      .format(heater.is_active,heater.value))
         case 'T':
             tkey = last_savepos or 'default'
-            print ("enter temperature ramp parameters for",tkey)
-            Tminstr = input("Tmin =")
-            Tmaxstr = input("Tmax =")
-            dtstr = input("dt = ")
+            print ("enter temperature ramp parameters for",tkey,\
+                   "(empty for default)")
+            if tkey in TEMPERATURES:
+                tkey_defaults = tkey
+            else:
+                tkey_defaults = 'default'
+            Tmin, Tmax, dt, ts, tmax = (TEMPERATURS[tkey_defaults][_] \
+                for _ in ['Tmin','Tmax','dt','ts','tmax'])
+            Tminstr = input("Tmin = [{}]".format(Tmin))
+            Tmaxstr = input("Tmax = [{}]".format(Tmax))
+            dtstr = input("dt [{}] = ".format(dt))
+            tsstr = input("ts [{}] = ".format(ts))
+            tmaxstr = input("tmax [{}] = ".format(tmax))
             try:
-                Tmin, Tmax, dt = float(Tminstr), float(Tmaxstr), float(dtstr)
-                TEMPERATURES[tkey] = { 'Tmin': Tmin, 'Tmax': Tmax, 'dt': dt }
+                Tmin, Tmax, dt, ts, tmax = float(Tminstr), float(Tmaxstr), \
+                    float(dtstr), float(tsstr), float(tmaxstr)
+                TEMPERATURES[tkey] = { 'Tmin': Tmin, 'Tmax': Tmax, \
+                                       'dt': dt, 'ts': ts, 'tmax': tmax }
             except ValueError:
                 print("illegal input, ignoring")
         case 'X':
@@ -523,8 +572,11 @@ if not stop:
         status['mug'] = True
         # now start the actual measurement program
         # timeout handling is done by SIGALRM here
+        # we now also need temperature control
         signal.signal(signal.SIGALRM, mug_timeout_handler)
         threading.Thread(target=microgravity_timeout).start()
+        temp_controller = TemperatureController ()
+        threading.Thread(target=temp_controller.control).start()
         try:
             microgravity_experiment()
         except MicrogravityTimeout as msg:
@@ -535,6 +587,7 @@ if not stop:
 
 ## THIRD PHASE: MICROGRAVITY EXPERIMENT
 
+# this code here is actually called from above
 
 # microgravity timeout: handled by UNIX ALRM signal for a timeout in seconds
 # but the loop here polls the mug pin and sends the signal once that
@@ -564,6 +617,39 @@ def mug_timeout_handler (signum, frame):
         raise MicrogravityTimeout("END OF EXPERIMENT")
 
 
+class TemperatureController ():
+    def __init__ (self):
+        self.set_profile (TEMPERATURES['default'])
+    def __del__ (self):
+        heater.off()
+    def set_profile (self, profile):
+        self.Tmin, self.Tmax, self.dt, self.ts = \
+            profile['Tmin'], profile['Tmax'], profile['dt'], profile['ts']
+        self.t0 = time.time()
+    def control (self):
+        while True:
+            t = time.time()
+            Ttarget = T(t-t0,self.Tmin,self.Tmax,self.dt,self.ts)
+            Tcurrent = temp_sensor.temperature
+            if Tcurrent < Ttarget:
+                heater.on()
+            elif Tcurrent >= Ttarget:
+                # we cannot currently cool
+                # we could use PWM to heat less once we get near target
+                # but this is not implemented yet
+                heater.off()
+            temperature_log.write(\
+                "t0 = {}, t = {}, T = {}, Ttarget = {}, heat {}" \
+                .format(t0,t,Tcurrent,Ttarget,heater.is_active))
+            time.sleep(1)
+
+
+def CameraController ():
+    def __init__ (self):
+        pass
+    def record (self):
+        pass
+
 
 # CORE MICROGRAVITY EXPERIMENT PROCEDURE
 
@@ -572,10 +658,19 @@ def microgravity_experiment ():
     log.write("mug sequence: positions "+" / ".join(positions))
     while status['mug']:
         for pos in positions:
+            # TODO: start camera recording
+            camera = CameraController()
+            threading.Thread(target=camera.record).start()
             move_to_stored_position (pos)
-            # TODO: start camera recording, temperature ramp
+            if pos in TEMPERATURES:
+                Tprofile = TEMPERATURES[pos]
+            else:
+                Tprofile = TEMPERATURES['default']
+            Tcontrol.set_profile (Tprofile)
+            # wait some time
+            time.sleep(Tprofile['tmax'])
+            camera.stop()
             pass
-
 
 
 
