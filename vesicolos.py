@@ -1,6 +1,6 @@
 import sys, os, tty, termios, select
 import time
-import threading
+import threading, signal
 
 import RPi.GPIO as GPIO
 import gpiozero
@@ -46,6 +46,9 @@ SERVO_CMDS = {
   'PGUP':   { 'axis': 'Z', 'dir': -1 },
   'PGDOWN': { 'axis': 'Z', 'dir': +1 }
 }
+
+# user-saved positions will be stored here
+POSITIONS = {}
 
 # signal configuration
 status = { _: False for _ in status_pins }
@@ -334,20 +337,18 @@ while not status['LO']:
                 reset_wrap = False
             success = monitor.update_pos()
             if success:
+                POSITIONS[poskey] = {}
                 for ax in axes:
                     if reset_wrap:
                         monitor.wrap[ax] = 0
-                    SERVOS[ax][poskey] = (monitor.pos[ax],monitor.wrap[ax])
+                    POSITIONS[poskey][ax] = (monitor.pos[ax],monitor.wrap[ax])
                 print ('saved',poskey,monitor.pos,monitor.wrap)
         case '1' | '2' | '3' | '4':
             if ch == 'R': # this is for the moment not used
                 poskey = 'homepos'
             else:
                 poskey = 'savepos'+ch
-            foundpos = True
-            for ax in axes:
-                foundpos &= (poskey in SERVOS[ax])
-            if not foundpos:
+            if not (poskey in POSITIONS):
                 print ('no position',poskey,'saved')
             else:
                 # to go to a defined position:
@@ -364,9 +365,9 @@ while not status['LO']:
                     if not success:
                         raise Exception("failed updating position")
                     current_pos = monitor.pos
-                    target_pos = { _: SERVOS[_][poskey][0] for _ in axes }
+                    target_pos = { _: POSITIONS[poskey][_][0] for _ in axes }
                     current_wrap = monitor.wrap
-                    target_wrap = { _: SERVOS[_][poskey][1] for _ in axes }
+                    target_wrap = { _: POSITIONS[poskey][_][1] for _ in axes }
                     print('current',current_pos,current_wrap)
                     print('target ',target_pos,target_wrap)
                     for ax in axes:
@@ -462,14 +463,8 @@ while not status['LO']:
             print ("1-4: recall positions")
             for i in range(1,5):
                 poskey = 'savepos'+str(i)
-                pos = { _: 0 for _ in axes }
-                found = True
-                for ax in axes:
-                    if poskey in SERVOS[ax]:
-                        pos[ax] = SERVOS[ax][poskey]
-                    else:
-                        found = False
-                print(' ',poskey,pos)
+                if poskey in POSITIONS:
+                    print (' ',poskey,POSITIONS[poskey])
 
 
 #  SECOND PHASE
@@ -487,29 +482,54 @@ if not stop:
             if time.time() - t0 >= SOE_TIMEOUT:
                 log.write("SOE by timeout")
                 break
-        # now start the actual measurement program
         status['mug'] = True
+        # now start the actual measurement program
+        # timeout handling is done by SIGALRM here
+        signal.signal(signal.SIGALRM, mug_timeout_handler)
         threading.Thread(target=microgravity_timeout).start()
-        microgravity_experiment()
+        try:
+            microgravity_experiment()
+        except MicrogravityTimeout as msg:
+            log.write(msg)
+        signal.alarm(0) # clear any remaining ALRM signals
 
 
 
 ## THIRD PHASE: MICROGRAVITY EXPERIMENT
 
 
+# microgravity timeout: handled by UNIX ALRM signal for a timeout in seconds
+# but the loop here polls the mug pin and sends the signal once that
+# flag goes off, cancelling possibly before
 def microgravity_timeout ():
     global status
-    t0 = time.time()
+    signal.alarm(EXP_TIMEOUT)
     while GPIO.input(status_pins['mug']):
         time.sleep(1)
-        if time.time() - t0 >= EXP_TIMEOUT:
-            log.write("SOE OFF by timeout")
-            break
+        #if time.time() - t0 >= EXP_TIMEOUT:
+        #    log.write("SOE OFF by timeout")
+        #    break
     status['mug'] = False
+    signal.raise_signal(signal.SIGALRM)
     log.write("END OF MUG")
 
+# the SIGALRM handler is responsible for raising the exception that will
+# interrupt the microgravity_experiment() function
+class MicrogravityTimeout (Exception):
+    pass
+def mug_timeout_handler (signum, frame):
+    global status
+    if status['mug']:
+        # mug flag still on, thus we have been raised by timeout
+        raise MicrogravityTimeout("END OF EXPERIMENT by timeout")
+    else:
+        raise MicrogravityTimeout("END OF EXPERIMENT")
+
+
+# CORE MICROGRAVITY EXPERIMENT PROCEDURE
 
 def microgravity_experiment ():
+    positions = sorted(POSITIONS.keys())
     while status['mug']:
         # do stuff
         pass
