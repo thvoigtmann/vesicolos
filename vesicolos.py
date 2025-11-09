@@ -49,6 +49,17 @@ SERVO_CMDS = {
 
 # user-saved positions will be stored here
 POSITIONS = {}
+# for each user-saved position we can define our own temperature ramps
+# defined by Tmin, Tmax, dt (ramp time)
+# via T(t) = Tmin + (Tmax-Tmin)*t/dt
+TEMPERATURES = { 'default': { 'Tmin': 25, 'Tmax': 30, 'dt': 10 } }
+def T(t,Tmin,Tmax,dt):
+    if t <= 0:
+        return Tmin
+    if t >= dt:
+        return Tmax
+    return Tmin + (Tmax - Tmin) * t/dt
+
 
 # signal configuration
 status = { _: False for _ in status_pins }
@@ -371,6 +382,7 @@ def move_to_stored_position ():
 
 # this is the main before-lift-off loop for user interaction
 
+last_savepos = None
 while not status['LO']:
     ch = None
     while ch is None:
@@ -408,6 +420,7 @@ while not status['LO']:
                         monitor.wrap[ax] = 0
                     POSITIONS[poskey][ax] = (monitor.pos[ax],monitor.wrap[ax])
                 print ('saved',poskey,monitor.pos,monitor.wrap)
+                last_savepos = poskey
         case '1' | '2' | '3' | '4':
             if ch == 'R': # this is for the moment not used
                 poskey = 'homepos'
@@ -421,6 +434,7 @@ while not status['LO']:
                 monitor.stop()
                 move_to_stored_position(poskey)
                 monitor.start()
+                last_savepos = poskey
         case 'G':
             stop_all_servos()
             ax = input('axis? ').upper()
@@ -458,6 +472,17 @@ while not status['LO']:
         case 'H':
             heater.toggle()
             log.write('HEATER PWM active {} value {}'.format(heater.is_active,heater.value))
+        case 'T':
+            tkey = last_savepos or 'default'
+            print ("enter temperature ramp parameters for",tkey)
+            Tminstr = input("Tmin =")
+            Tmaxstr = input("Tmax =")
+            dtstr = input("dt = ")
+            try:
+                Tmin, Tmax, dt = float(Tminstr), float(Tmaxstr), float(dtstr)
+                TEMPERATURES[tkey] = { 'Tmin': Tmin, 'Tmax': Tmax, 'dt': dt }
+            except ValueError:
+                print("illegal input, ignoring")
         case 'X':
             log.write("MANUAL LIFT OFF")
             manual_lift_off = True
@@ -471,6 +496,7 @@ while not status['LO']:
             print ("w : Where are we? print current positions")
             print ('l : LED toggle')
             print ('h : Heater toggle')
+            print ('t : Temperature set points')
             print ("F1-F4: store positions")
             print ("1-4: recall positions")
             for i in range(1,5):
