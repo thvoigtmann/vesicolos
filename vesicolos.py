@@ -164,19 +164,19 @@ def getkey(timeout=1):
 class Logger():
     def __init__ (self, logfile):
         self.logfile = open(logfile, 'w')
-        self.logfile.write("*** START *** "+self.tstamp())
+        self.logfile.write("*** START *** "+self.tstamp()+'\n')
         self.logfile.flush()
     def __del__ (self):
-        self.logfile.write("*** END   *** "+self.tstamp())
+        self.logfile.write("*** END   *** "+self.tstamp()+'\n')
         self.logfile.close()
     def tstamp (self):
         return time.strftime("%Y-%m-%d %H:%M:%S")
     def write (self, msg):
-        self.logfile.write(self.tstamp()+" "+msg)
+        self.logfile.write(self.tstamp()+" "+msg+'\n')
         self.logfile.flush()
         print(msg)
     def err (self, msg):
-        self.logfile.write("*** ERR *** "+self.tstamp()+" "+msg)
+        self.logfile.write("*** ERR *** "+self.tstamp()+" "+msg+'\n')
         self.lofgile.flush()
         print("*** ERR ***",msg)
 
@@ -749,6 +749,9 @@ def microgravity_experiment ():
             threading.Thread(target=camera.record).start()
             if not pos == 'default':
                 move_to_stored_position (pos)
+                do_zstack = True
+            else:
+                do_zstack = False
             if pos in TEMPERATURES:
                 Tprofile = TEMPERATURES[pos]
             else:
@@ -756,13 +759,12 @@ def microgravity_experiment ():
             Tcontrol.set_profile (Tprofile)
             # take some time, do z-stacks
             tmax = Tprofile['tmax'] + time.time()
-            do_zstack = False
             if 'Z' in axes:
                 scs_id = SERVOS['Z']['ID']
                 comm, err = motorDriver.WheelMode(scs_id, False)
                 # do_zstack shall only be true if we don't have
                 # motor errors
-                do_zstack = motorDriver.success(comm, err)
+                do_zstack &= motorDriver.success(comm, err)
                 time.sleep(0.2)
                 pos, comm, err = motorDriver.ReadPos(scs_id)
                 do_zstack &= motorDriver.success(comm, err)
