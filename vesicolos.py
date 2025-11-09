@@ -306,6 +306,69 @@ monitor = ServoMonitor(increment=MONITOR_INTERVAL)
 
 # before lift off we are connected via umbilical
 # allow user to remote control with keyboard commands
+
+# a key point here is to be able to move the motors, store some
+# positions of interest, and be able to return to them automatically
+# that latter part is a bit tricky, it is wrapped in its own function:
+def move_to_stored_position ():
+    # to go to a defined position:
+    # 1. calculate delta in wheel mode
+    # 2. go to servo mode, set current as middle position 2048
+    # 3. move to 2048+delta
+    #    possibly first a multiple of 7 turns if wrap too large
+    # 4. go to wheel mode
+    try:
+        success = monitor.update_pos()
+        if not success:
+            raise Exception("failed updating position")
+        current_pos = monitor.pos
+        target_pos = { _: POSITIONS[poskey][_][0] for _ in axes }
+        current_wrap = monitor.wrap
+        target_wrap = { _: POSITIONS[poskey][_][1] for _ in axes }
+        print('current',current_pos,current_wrap)
+        print('target ',target_pos,target_wrap)
+        for ax in axes:
+            scs_id = SERVOS[ax]['ID']
+            motorDriver.WheelMode(scs_id,False)
+            time.sleep(0.2)
+            comm, err = motorDriver.SetMiddle(scs_id)
+            if not motorDriver.success(comm, err):
+                raise Exception("failed setting motor reference pos")
+            delta_pos = target_pos[ax] - current_pos[ax]
+            delta_wrap = target_wrap[ax] - current_wrap[ax]
+            print('need delta',delta_pos,delta_wrap)
+            if abs(delta_wrap) >= ST_MAX_WRAPS:
+                direction = 1
+                if delta_wrap < 0:
+                    direction = -1
+                time.sleep(0.2)
+                success = motorDriver.GotoPos(scs_id, \
+                          ST_MIDDLE + direction*ST_STEPS*(ST_MAX_WRAPS-1))
+                if not success:
+                    raise Exception("failed unwrapping")
+                comm, err = motorDriver.SetMiddle(scs_id)
+                if not motorDriver.success(comm, err):
+                    raise Exception("failed re-setting motor reference pos")
+                delta_wrap -= direction*(ST_MAX_WRAPS-1)
+            dpos = delta_pos + ST_STEPS*delta_wrap
+            success = motorDriver.GotoPos(scs_id, ST_MIDDLE+dpos)
+            if not success:
+                raise Exception("failed moving motor by delta steps")
+            time.sleep(0.2)
+            motorDriver.WheelMode(scs_id,True)
+            time.sleep(0.2)
+            monitor.update_pos()
+            monitor.wrap[ax] = target_wrap[ax]
+            if monitor.pos[ax] < 100 and target_pos[ax] > ST_STEPS-100:
+                monitor.wrap[ax] += 1
+            if monitor.pos[ax] > ST_STEPS-100 and target_pos[ax] > ST_STEPS-100:
+                monitor.wrap[ax] -= 1                        
+    except Exception as err:
+        log.err(str(err))
+
+
+# this is the main before-lift-off loop for user interaction
+
 while not status['LO']:
     ch = None
     while ch is None:
@@ -351,63 +414,10 @@ while not status['LO']:
             if not (poskey in POSITIONS):
                 print ('no position',poskey,'saved')
             else:
-                # to go to a defined position:
-                # 1. calculate delta in wheel mode
-                # 2. go to servo mode, set current as middle position 2048
-                # 3. move to 2048+delta
-                #    possibly first a multiple of 7 turns if wrap too large
-                # 4. go to wheel mode
                 stop_all_servos()
                 time.sleep(0.2)
                 monitor.stop()
-                try:
-                    success = monitor.update_pos()
-                    if not success:
-                        raise Exception("failed updating position")
-                    current_pos = monitor.pos
-                    target_pos = { _: POSITIONS[poskey][_][0] for _ in axes }
-                    current_wrap = monitor.wrap
-                    target_wrap = { _: POSITIONS[poskey][_][1] for _ in axes }
-                    print('current',current_pos,current_wrap)
-                    print('target ',target_pos,target_wrap)
-                    for ax in axes:
-                        scs_id = SERVOS[ax]['ID']
-                        motorDriver.WheelMode(scs_id,False)
-                        time.sleep(0.2)
-                        print('setting middlepos')
-                        comm, err = motorDriver.SetMiddle(scs_id)
-                        if not motorDriver.success(comm, err):
-                            raise Exception
-                        delta_pos = target_pos[ax] - current_pos[ax]
-                        delta_wrap = target_wrap[ax] - current_wrap[ax]
-                        print('need delta',delta_pos,delta_wrap)
-                        if abs(delta_wrap) >= ST_MAX_WRAPS:
-                            direction = 1
-                            if delta_wrap < 0:
-                                direction = -1
-                            time.sleep(0.2)
-                            success = motorDriver.GotoPos(scs_id, ST_MIDDLE + direction*ST_STEPS*(ST_MAX_WRAPS-1))
-                            if not success:
-                                raise Exception
-                            comm, err = motorDriver.SetMiddle(scs_id)
-                            if not motorDriver.success(comm, err):
-                                raise Exception
-                            delta_wrap -= direction*(ST_MAX_WRAPS-1)
-                        dpos = delta_pos + ST_STEPS*delta_wrap
-                        success = motorDriver.GotoPos(scs_id, ST_MIDDLE+dpos)
-                        if not success:
-                            raise Exception
-                        time.sleep(0.2)
-                        motorDriver.WheelMode(scs_id,True)
-                        time.sleep(0.2)
-                        monitor.update_pos()
-                        monitor.wrap[ax] = target_wrap[ax]
-                        if monitor.pos[ax] < 100 and target_pos[ax] > ST_STEPS-100:
-                            monitor.wrap[ax] += 1
-                        if monitor.pos[ax] > ST_STEPS-100 and target_pos[ax] > ST_STEPS-100:
-                            monitor.wrap[ax] -= 1                        
-                except Exception as err:
-                    print('ERROR',str(err))
+                move_to_stored_position(poskey)
                 monitor.start()
         case 'G':
             stop_all_servos()
@@ -530,9 +540,10 @@ def mug_timeout_handler (signum, frame):
 
 def microgravity_experiment ():
     positions = sorted(POSITIONS.keys())
+    log.write("mug sequence: positions "+" / ".join(positions))
     while status['mug']:
-        # do stuff
-        pass
+        for pos in positions:
+            pass
 
 
 
