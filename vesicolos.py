@@ -84,7 +84,7 @@ POSITIONS = {}
 TEMPERATURES = {
   'default': { 'Tmin': 25, 'Tmax': 40, 'dt': 30, 'ts': 20, 'tmax': 120 }
 }
-def T(t,Tmin,Tmax,dt):
+def T(t,Tmin,Tmax,dt,ts):
     tau = t-ts
     if tau <= 0:
         return Tmin
@@ -636,6 +636,7 @@ while not status['LO']:
             print ('h : Heater toggle')
             print ('t : Temperature set points')
             print ('c : Start camera')
+            print ('x : manual liftoff')
             print ("F1-F4: store positions")
             print ("1-4: recall positions")
             for i in range(1,5):
@@ -648,17 +649,21 @@ while not status['LO']:
 
 # we have a lift-off, so remote control is off now
 
+print('RECEIVED LIFTOFF')
 
 if not stop:
     stop_all_servos()
+    print('WAITING FOR LIFTOFF')
     if not manual_lift_off:
         # this is a real lift off, we wait for mug now
+        print('REALLY WAITING FOR LIFTOFF')
         t0 = time.time()
         # we record the ascent for sure, but if the user started before
         # we do not interrupt them
         if camera is None:
-            camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
+            camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff'})
             threading.Thread(target=camera.record).start()
+        print('ACTUALLY WAITING FOR LIFTOFF')
         while not GPIO.input(STATUS_PINS['mug']):
             log.write("waiting for microgravity")
             time.sleep(0.5)
@@ -679,7 +684,7 @@ if not stop:
 def microgravity_timeout ():
     global status
     signal.alarm(EXP_TIMEOUT)
-    while GPIO.input(STATUS_PINS['mug']):
+    while GPIO.input(STATUS_PINS['mug']) or manual_lift_off:
         time.sleep(1)
         #if time.time() - t0 >= EXP_TIMEOUT:
         #    log.write("SOE OFF by timeout")
@@ -711,9 +716,9 @@ class TemperatureController ():
             profile['Tmin'], profile['Tmax'], profile['dt'], profile['ts']
         self.t0 = time.time()
     def control (self):
-        while True:
+        while heater is not None:
             t = time.time()
-            Ttarget = T(t-t0,self.Tmin,self.Tmax,self.dt,self.ts)
+            Ttarget = T(t-self.t0,self.Tmin,self.Tmax,self.dt,self.ts)
             Tcurrent = temp_sensor.temperature
             if Tcurrent < Ttarget:
                 heater.on()
@@ -724,9 +729,10 @@ class TemperatureController ():
                 heater.off()
             temperature_log.write(\
                 "t0 = {}, t = {}, T = {}, Ttarget = {}, heat {}" \
-                .format(t0,t,Tcurrent,Ttarget,heater.is_active))
+                .format(self.t0,t,Tcurrent,Ttarget,heater.is_active))
             time.sleep(1)
 
+Tcontrol = TemperatureController()
 
 
 
@@ -735,7 +741,7 @@ class TemperatureController ():
 def microgravity_experiment ():
     positions = sorted(POSITIONS.keys() or ['default'])
     log.write("mug sequence: positions "+" / ".join(positions))
-    while status['mug']:
+    while status['mug'] or manual_lift_off:
         for pos in positions:
             camera = CameraController(camfile,pts=ptsfile,keys={'pos':pos})
             threading.Thread(target=camera.record).start()
