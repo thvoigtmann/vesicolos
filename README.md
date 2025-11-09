@@ -9,17 +9,17 @@ hardware setup:
 
 Raspberry GPIO pin layout (using GPIO numbers, not physical pin numbers):
 
-| GPIO    | Function | Remark |
-|---------|----------|--------|
-| GPIO 5  | SPI CS1   | temperature sensor |
+| GPIO    | Function  | Remark                                  |
+|---------|-----------|-----------------------------------------|
+| GPIO 5  | SPI CS1   | temperature sensor                      |
 | GPIO 6  | SPI CS2   | not yet connected on the clip connector |
-| GPIO 9  | SPI MISO  | standard 
-| GPIO 10 | SPI MOSI  | standard
-| GPIO 11 | SPI CLK   | standard
-| GPIO 12 | PWM1      | LED
-| GPIO 13 | PWM2      | heater
-| GPIO 17 | LO        | lift off from MOSAIC |
-| GPIO 23 | mug       | microgravity detection from MOSAIC
+| GPIO 9  | SPI MISO  | standard                                |
+| GPIO 10 | SPI MOSI  | standard                                |
+| GPIO 11 | SPI CLK   | standard                                |
+| GPIO 12 | PWM1      | LED                                     |
+| GPIO 13 | PWM2      | heater                                  |
+| GPIO 17 | LO        | lift off from MOSAIC                    |
+| GPIO 23 | mug       | microgravity detection from MOSAIC      |
 
 
 # Raspberry Configuration
@@ -62,7 +62,11 @@ python3 -m venv --system-site-packages venv
 Then install the required python libraries found in `requirements.txt`.
 For the `lgpio` library on the Raspberry 5, we found it necessary to first
 install `lg` from https://abyz.me.uk/lg/download.html (follow instructions
-there).
+there). The important packages that do not come with the raspberry install
+should be
+```bash
+adafruit-circuitpython-max31865 gpiozero lgpio rpi-lgpio pyserial
+```
 
 The file in `autostart` needs to be copied into `~/.config/autostart/`.
 This should make the vesicolos python program automatically start once
