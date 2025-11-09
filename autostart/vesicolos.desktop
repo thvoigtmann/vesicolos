@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=VESICOLOS
+Exec=~/Desktop/vesicolos/start.sh
+Terminal=true
