@@ -8,6 +8,8 @@ import gpiozero                            # used for PWM (LED and heater)
 import board, digitalio, adafruit_max31865 # used for temperature sensor
 GPIO.setmode(GPIO.BCM)
 
+import picamera2
+
 # local repositories
 import scservo_sdk                         # used for motor driver
 
@@ -96,7 +98,8 @@ tstamp = time.strftime("%Y-%m-%d-%H-%M-%S")
 restartfile = 'vesicolos-restart.json'
 logfile = tstamp+'/vesicolos.log'
 temperature_logfile = tstamp+'/temperature.log'
-camfile = tstamp+'/vesicolos-{pos}-{frame:%06d}.jpg'
+camfile = tstamp+'/capture-{pos}-{frame:%06d}.jpg'
+ptsfile = tstamp+'/capture-{pos}-pts.txt'
 # make output directory
 try:
     os.mkdir(tstamp)
@@ -613,18 +616,18 @@ if not stop:
                 log.write("SOE by timeout")
                 break
         status['mug'] = True
-        # now start the actual measurement program
-        # timeout handling is done by SIGALRM here
-        # we now also need temperature control
-        signal.signal(signal.SIGALRM, mug_timeout_handler)
-        threading.Thread(target=microgravity_timeout).start()
-        temp_controller = TemperatureController ()
-        threading.Thread(target=temp_controller.control).start()
-        try:
-            microgravity_experiment()
-        except MicrogravityTimeout as msg:
-            log.write(msg)
-        signal.alarm(0) # clear any remaining ALRM signals
+    # now start the actual measurement program
+    # timeout handling is done by SIGALRM here
+    # we now also need temperature control
+    signal.signal(signal.SIGALRM, mug_timeout_handler)
+    threading.Thread(target=microgravity_timeout).start()
+    temp_controller = TemperatureController ()
+    threading.Thread(target=temp_controller.control).start()
+    try:
+        microgravity_experiment()
+    except MicrogravityTimeout as msg:
+        log.write(msg)
+    signal.alarm(0) # clear any remaining ALRM signals
 
 
 
@@ -688,12 +691,22 @@ class TemperatureController ():
 
 
 def CameraController ():
-    def __init__ (self, filename, keys={}):
+    def __init__ (self, filename, pts=None, keys={}):
         self.stop = False
         self.imgpath = filename
         self.imgpath_keys = keys
+        self.ptsfile = pts
+        self.picam = picamera2.Picamera2()
+        self.config = self.picam.create_video_configuration()
+        self.picam.configure(self.config)
+        self.encoder = picamera2.encoders.H264Encoder(10000000)
+    def __del__ (self):
+        self.picam.stop_recording()
     def record (self):
         frame = 0
+        imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
+        pts = self.ptsfile.format(self.imgpath_keys)
+        self.picam.start_recording(self.encoder, imgfile, pts=pts)
         while not self.stop:
             imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
             print("cam recording DUMMY TODO",imgfile)
@@ -701,6 +714,7 @@ def CameraController ():
             frame += 1
     def stop (self):
         self.stop = True
+        self.picam.stop_recording()
 
 
 # CORE MICROGRAVITY EXPERIMENT PROCEDURE
@@ -710,8 +724,7 @@ def microgravity_experiment ():
     log.write("mug sequence: positions "+" / ".join(positions))
     while status['mug']:
         for pos in positions:
-            # TODO: start camera recording
-            camera = CameraController(camfile,keys={'pos':pos})
+            camera = CameraController(camfile,pts=ptsfile,keys={'pos':pos})
             threading.Thread(target=camera.record).start()
             move_to_stored_position (pos)
             if pos in TEMPERATURES:
@@ -734,7 +747,6 @@ def microgravity_experiment ():
                 zdirection = -1
                 motorDriver.GotoPos (scs_id, zpos)
             while True:
-                # TODO zstack
                 if do_zstack:
                     if zcnt >= MOTOR_DZ_STEPS:
                         zdirection = -zdirection
