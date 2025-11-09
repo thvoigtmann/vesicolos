@@ -466,6 +466,8 @@ def move_to_stored_position ():
 # this is the main before-lift-off loop for user interaction
 
 last_savepos = None
+camera = None
+recordings = []
 while not status['LO']:
     ch = None
     while ch is None:
@@ -582,6 +584,17 @@ while not status['LO']:
             log.write("MANUAL LIFT OFF")
             manual_lift_off = True
             status['LO'] = True
+        case 'C':
+            if camera is not None:
+                camera.stop()
+            ckey = last_savepos or 'launch'
+            ckey += '{i:02d}'
+            i = 1
+            while ckey.format(i=i) in recordings:
+                i += 1
+            ckey = ckey.format(i=i)
+            camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
+            threading.Thread(target=camera.record).start()
         case '?':
             print ("menu:")
             print ("left/right/up/down: change x/y velocity")
@@ -592,6 +605,7 @@ while not status['LO']:
             print ('l : LED toggle')
             print ('h : Heater toggle')
             print ('t : Temperature set points')
+            print ('c : Start camera')
             print ("F1-F4: store positions")
             print ("1-4: recall positions")
             for i in range(1,5):
@@ -637,8 +651,11 @@ if not stop:
     if not manual_lift_off:
         # this is a real lift off, we wait for mug now
         t0 = time.time()
-        camera = CameraController(camfile,pts=ptsfile,keys={'pos':'launch'})
-        threading.Thread(target=camera.record).start()
+        # we record the ascent for sure, but if the user started before
+        # we do not interrupt them
+        if camera is None:
+            camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
+            threading.Thread(target=camera.record).start()
         while not GPIO.input(STATUS_PINS['mug']):
             log.write("waiting for microgravity")
             time.sleep(0.5)
