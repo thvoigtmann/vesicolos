@@ -24,7 +24,7 @@ VESICOLOS was created by
 - Thomas Voigtmann - software (DLR-FM)
 - Laura Alvarez - science (U Bordeaux)
 - Paulina Blair - science (DLR-FM / U Düsseldorf)
-- Christian Kahlo - software revision, spare parts (adesso SE)
+- Christian Kahlo - software revision, spare parts ([VX4](https://sites.vx4.de/imprint))
 
 # Hardware Setup
 
