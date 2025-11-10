@@ -19,6 +19,7 @@ import scservo_sdk                         # used for motor driver
 # for MAPHEUS-16 these are the values roughly matching the MOSAIC timeline
 SOE_TIMEOUT = 67               # timeout to start if no mug signal comes
 EXP_TIMEOUT = 400              # timeout for duration of experiment
+MUG_STICKY = True              # if true, keep mug status ON once set
 
 # hardware settings
 # GPIO pin layout used
@@ -711,6 +712,7 @@ if not stop:
             try:
                 camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff'})
                 threading.Thread(target=camera.record).start()
+                led.on()
             except RuntimeError as e:
                 camera = None
                 log.err("camera error "+str(e))
@@ -736,12 +738,13 @@ def microgravity_timeout ():
     global status
     #signal.alarm(EXP_TIMEOUT)
     t0 = time.time()
-    while GPIO.input(STATUS_PINS['mug']) or manual_lift_off:
+    while MUG_STICKY or GPIO.input(STATUS_PINS['mug']) or manual_lift_off:
         time.sleep(1)
         if time.time() - t0 >= EXP_TIMEOUT:
             log.write("SOE OFF by timeout")
             break
-    status['mug'] = bool(GPIO.input(STATUS_PINS['mug'])) or manual_lift_off
+    status['mug'] = MUG_STICKY or bool(GPIO.input(STATUS_PINS['mug'])) \
+                    or manual_lift_off
     log.write("END OF MUG")
     signal.raise_signal(signal.SIGALRM)
 
