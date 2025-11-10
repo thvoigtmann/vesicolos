@@ -32,6 +32,7 @@ Raspberry GPIO pin layout (using GPIO numbers, not physical pin numbers):
   dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4
   dtoverlay=w1-gpio
   dtoverlay=disable-wifi
+  dtoverlay=disable-bt
   ```
   These should have the effect that UART is enabled, 2 hardware PWM channels
   are enabled, and WiFi is off. Also the Raspberry 5 should be forced to
