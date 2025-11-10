@@ -453,7 +453,9 @@ def save_restart ():
         with open(restartfile, 'w') as f:
             json.dump({'TEMPERATURES': TEMPERATURES, 'POSITIONS': POSITIONS, \
                        'wrap':monitor.wrap}, f, sort_keys=True, indent=4)
+
         time.sleep(10)
+        os.sync()
 threading.Thread(target=save_restart).start()
 
 
@@ -669,6 +671,7 @@ while not status['LO']:
             while ckey.format(i=i) in recordings:
                 i += 1
             ckey = ckey.format(i=i)
+            recordings.append(ckey)
             try:
                 camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
                 threading.Thread(target=camera.record).start()
