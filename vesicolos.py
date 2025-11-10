@@ -804,6 +804,13 @@ def microgravity_experiment ():
     led.on()
     while status['mug'] or manual_lift_off:
         for pos in positions:
+            ckey = pos
+            ckey += '{i:02d}'
+            i = 1
+            while ckey.format(i=i) in recordings:
+                i += 1
+            ckey = ckey.format(i=i)
+            recordings.append(ckey)
             try:
                 camera = CameraController(camfile,pts=ptsfile,keys={'pos':pos})
                 threading.Thread(target=camera.record).start()
