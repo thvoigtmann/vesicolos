@@ -812,7 +812,7 @@ def microgravity_experiment ():
             ckey = ckey.format(i=i)
             recordings.append(ckey)
             try:
-                camera = CameraController(camfile,pts=ptsfile,keys={'pos':pos})
+                camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
                 threading.Thread(target=camera.record).start()
             except RuntimeError as e:
                 camera = None
