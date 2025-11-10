@@ -44,6 +44,7 @@ ST_MAX_WRAPS = 7               # how many turns the servo can resolve
 ST_MIDDLE = 2048               # middle position set by zeroing the servo
 ST_MAX_ID = 10                 # maximum servo ID to scan for
 ST_MOVING_ACC = 50             # default servo acceleration
+ST_MOVING_ACC_SLOW = 10        # servo acceleration for slow movements
 MONITOR_INTERVAL = 1           # interval in seconds for the motor monitor
 # for zstack: we have 1 turn = 4096 steps = 100mu
 # aim for slices 1mu apart => stepsize = 40 steps = 0.98mu
@@ -766,22 +767,27 @@ def microgravity_experiment ():
                 # motor errors
                 do_zstack &= motorDriver.success(comm, err)
                 time.sleep(0.2)
-                pos, comm, err = motorDriver.ReadPos(scs_id)
+                motorDriver.SetMiddle(scs_id)
                 do_zstack &= motorDriver.success(comm, err)
-                zpos = pos + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
+                time.sleep(0.2)
+                # after set middle, motor is in servo mode, pos 2048
+                # set zpos to highest position first
+                zpos = 2048 + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
                 zcnt = 0
                 zdirection = -1
                 print('ZSTACK',pos,zpos)
                 motorDriver.GotoPos (scs_id, zpos)
+                #motorDriver.WritePosEx (scs_id, zpos, 0, 0) # or ST_MOVING_ACC_SLOW
             while True:
                 if do_zstack:
                     if zcnt >= MOTOR_DZ_STEPS:
                         zdirection = -zdirection
                         zcnt = 0
                     zcnt += 1
-                    zpos += zdirection*MOTOR_DZ_STEPS
+                    zpos += zdirection*MOTOR_DZ_STEPSIZE
                     print('ZSTACK',pos,zpos)
-                    motorDriver.GotoPos (scs_id, zpos+zdirection*MOTOR_DZ_STEPSIZE) 
+                    motorDriver.GotoPos (scs_id, zpos) 
+                    #motorDriver.WritePosEx (scs_id, zpos, 0, 0) # or ST_MOVING_ACC_SLOW
                 time.sleep(MOTOR_DZ_WAIT)
                 if time.time() > tmax:
                     break
