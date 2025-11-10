@@ -59,7 +59,7 @@ MOTOR_DZ_WAIT = 0.1            # in seconds, wait time at each step
 SERVOS = {
   'X': { 'ID': 0, 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
   'Y': { 'ID': 9, 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
-  'Z': { 'ID': 1, 'DEFAULT_SPEED':  200, 'SPEED_INC':  40, 'current_speed': 0 },
+  'Z': { 'ID': 1, 'DEFAULT_SPEED':  200, 'SPEED_INC':  40, 'MAX_WRAP': 1, 'current_speed': 0 },
 }
 SERVO_CMDS = {
   'LEFT':   { 'axis': 'Y', 'dir': +1 },
@@ -437,13 +437,15 @@ try:
     print("re-loaded from restart file")
 except:
     pass
+# every 10 seconds, write current temperature and position settings
+# to the restart file
 prog_end = False
 def save_restart ():
     global prog_end, monitor
     while not prog_end:
         with open(restartfile, 'w') as f:
             json.dump({'TEMPERATURES': TEMPERATURES, 'POSITIONS': POSITIONS, \
-                    'wrap':monitor.wrap}, f, sort_keys=True, indent=4)
+                       'wrap':monitor.wrap}, f, sort_keys=True, indent=4)
         time.sleep(10)
 threading.Thread(target=save_restart).start()
 
@@ -462,7 +464,7 @@ def move_to_stored_position (poskey):
     # 1. calculate delta in wheel mode
     # 2. go to servo mode, set current as middle position 2048
     # 3. move to 2048+delta
-    #    possibly first a multiple of 7 turns if wrap too large
+    #    possibly first a multiple of 7 turns if delta too large
     # 4. go to wheel mode
     try:
         success = monitor.update_pos()
@@ -484,6 +486,13 @@ def move_to_stored_position (poskey):
             delta_pos = target_pos[ax] - current_pos[ax]
             delta_wrap = target_wrap[ax] - current_wrap[ax]
             print('need delta',delta_pos,delta_wrap)
+            if 'MAX_WRAP' in SERVOS[ax] \
+                and abs(delta_wrap) > SERVOS[ax]['MAX_WRAP']:
+                log.err(f"axis {ax} should not move by {delta_wrap} turns, limiting")
+                if delta_wrap > 0:
+                    delta_wrap = SERVOS[ax]['MAX_WRAP']
+                else:
+                    delta_wrap = -SERVOS[ax]['MAX_WRAP']
             if abs(delta_wrap) >= ST_MAX_WRAPS:
                 direction = 1
                 if delta_wrap < 0:
