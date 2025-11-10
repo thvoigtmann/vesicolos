@@ -1,3 +1,31 @@
+# Introduction
+
+VESICOLOS is a small fluorescence microscope in a 2U CubeSat unit,
+designed for the flight on the sounding rocket [MAPHEUS®](https://www.dlr.de/en/research-and-transfer/projects-and-missions/mapheus).
+It is a sub-payload of the MOSAIC module, which handles power and signals
+for its CubeSat-sized inserts.
+
+The setup was designed for the observation of giant unilamellar vesicles (GUV)
+in microgravity, hence the name.
+
+The MAPHEUS sounding rocket is a program run by the German Aerospace Center
+(DLR), in collaboration between the [Institute of Frontier Materials
+on Earth an in Space](https://www.dlr.de/en/fm), the [Institute of
+Aerospace Medicine](https://www.dlr.de/en/me), and the [Mobile Rocket
+Base MORABA](https://moraba.de/en/). VESICOLOS is part of a collaboration
+between DLR and the University of Bordeaux.
+
+## Contributors
+
+VESICOLOS was created by
+
+- Jörg Drescher - hardware engineering (DLR-FM)
+- Jens Hauslage - optics (DLR-ME)
+- Thomas Voigtmann - software (DLR-FM)
+- Laura Alvarez - science (U Bordeaux)
+- Paulina Blair - science (DLR-FM / U Düsseldorf)
+- Christian Kahlo - software revision, spare parts (adesso SE)
+
 # Hardware Setup
 
 For the MAPHEUS-16 flight, we used a Raspberry 5, and the following
