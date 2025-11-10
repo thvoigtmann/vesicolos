@@ -52,6 +52,9 @@ MONITOR_INTERVAL = 1           # interval in seconds for the motor monitor
 MOTOR_DZ_STEPSIZE = 40         # in steps, 4096 steps = 100mu
 MOTOR_DZ_STEPS = 50            # number of steps, scan depth = steps*stepsize
 MOTOR_DZ_WAIT = 0.1            # in seconds, wait time at each step
+# if we loose internet connection we don't want the motors to move
+# indefinitely, so there is a timeout in interactive mode
+MOTOR_TIMEOUT = 3              # seconds until motor stop in unattended UI mode
 
 # servo configuration for the three axes
 # values with lower-case names will be modified by the program
@@ -118,6 +121,7 @@ for pin in STATUS_PINS.values():
 stop = False
 manual_lift_off = False
 debug = False
+motor_moving = False
 
 
 
@@ -336,7 +340,7 @@ def find_all_servos():
 
 # set all motor velocities to zero
 def stop_all_servos ():
-    global axes
+    global axes, motor_moving
     success = True
     for ax in axes:
         comm, err = motorDriver.WriteSpec(SERVOS[ax]['ID'], 0, ST_MOVING_ACC)
@@ -344,6 +348,8 @@ def stop_all_servos ():
             SERVOS[ax]['current_speed'] = 0
         else:
             success = False
+    if success:
+        motor_moving = False
     return success
 
 
@@ -528,10 +534,16 @@ def move_to_stored_position (poskey):
 last_savepos = None
 camera = None
 recordings = []
+motor_timeout = MOTOR_TIMEOUT
 while not status['LO']:
     ch = None
     ch = getkey()
     if ch is None:
+        if motor_moving and motor_timeout > 0:
+            motor_timeout -= 1
+            if motor_timeout <= 0:
+                if stop_all_servos():
+                    motor_timeout = MOTOR_TIMEOUT
         continue
     ch = ch.upper()
     match ch:
@@ -547,6 +559,8 @@ while not status['LO']:
             comm, err = motorDriver.WriteSpec(SERVOS[ax]['ID'], vel, ST_MOVING_ACC)
             if motorDriver.success(comm, err):
                 SERVOS[ax]['current_speed'] = vel
+            if not (vel==0):
+                motor_moving = True
         case '0':
             if stop_all_servos():
                 print ("stop")
