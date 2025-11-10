@@ -775,7 +775,6 @@ def microgravity_experiment ():
                 zpos = 2048 + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
                 zcnt = 0
                 zdirection = -1
-                print('ZSTACK',pos,zpos)
                 motorDriver.GotoPos (scs_id, zpos)
                 #motorDriver.WritePosEx (scs_id, zpos, 0, 0) # or ST_MOVING_ACC_SLOW
             while True:
@@ -785,7 +784,6 @@ def microgravity_experiment ():
                         zcnt = 0
                     zcnt += 1
                     zpos += zdirection*MOTOR_DZ_STEPSIZE
-                    print('ZSTACK',pos,zpos)
                     motorDriver.GotoPos (scs_id, zpos) 
                     #motorDriver.WritePosEx (scs_id, zpos, 0, 0) # or ST_MOVING_ACC_SLOW
                 time.sleep(MOTOR_DZ_WAIT)
