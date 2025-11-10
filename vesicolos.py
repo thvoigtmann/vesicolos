@@ -16,10 +16,9 @@ import scservo_sdk                         # used for motor driver
 ## global settings
 
 # timeout settings, adapted to expected flight trajectory
-# we are pretty sure to be in microgravity after 65 seconds
-# for MAPHEUS-16 we expect microgravity to last not longer than 450 seconds
-SOE_TIMEOUT = 65               # timeout to start if no mug signal comes
-EXP_TIMEOUT = 450              # timeout for duration of experiment
+# for MAPHEUS-16 these are the values roughly matching the MOSAIC timeline
+SOE_TIMEOUT = 67               # timeout to start if no mug signal comes
+EXP_TIMEOUT = 400              # timeout for duration of experiment
 
 # hardware settings
 # GPIO pin layout used
@@ -48,10 +47,10 @@ ST_MOVING_ACC_SLOW = 10        # servo acceleration for slow movements
 MONITOR_INTERVAL = 1           # interval in seconds for the motor monitor
 # for zstack: we have 1 turn = 4096 steps = 100mu
 # aim for slices 1mu apart => stepsize = 40 steps = 0.98mu
-# 30 such steps (half below, half above target) => scan depth 1200steps=29.3mu
+# 50 such steps (half below, half above target) => scan depth 2000steps=48.8mu
 # we also specify the waiting time on each z position in the stack
 MOTOR_DZ_STEPSIZE = 40         # in steps, 4096 steps = 100mu
-MOTOR_DZ_STEPS = 30            # number of steps, scan depth = steps*stepsize
+MOTOR_DZ_STEPS = 50            # number of steps, scan depth = steps*stepsize
 MOTOR_DZ_WAIT = 0.1            # in seconds, wait time at each step
 
 # servo configuration for the three axes
@@ -83,7 +82,7 @@ POSITIONS = {}
 # we also defined a maximum time to spend in this ramp
 # this is only used as a waiting time, not by the temperature controller
 TEMPERATURES = {
-  'default': { 'Tmin': 25, 'Tmax': 40, 'dt': 60, 'ts': 30, 'tmax': 180 }
+  'default': { 'Tmin': 25, 'Tmax': 40, 'dt': 30, 'ts': 10, 'tmax': 90 }
 }
 def T(t,Tmin,Tmax,dt,ts):
     tau = t-ts
