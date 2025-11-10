@@ -639,8 +639,6 @@ while not status['LO']:
         case 'C':
             if camera is not None:
                 camera.stop()
-            # kill external previewer app if running, we want the cam ours now
-            kill_proc_by_name(rpicam_process)
             ckey = last_savepos or 'launch'
             ckey += '{i:02d}'
             i = 1
