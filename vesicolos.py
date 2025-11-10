@@ -176,6 +176,7 @@ def kill_proc_by_name(name):
    for proc in processes:
       try:
          proc.kill()
+         time.sleep(0.2) # give it time to die
       except psutil.NoSuchProcess:
          print(f"No such process: {proc.pid}")
       except psutil.AccessDenied:
