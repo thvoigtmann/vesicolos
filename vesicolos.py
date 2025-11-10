@@ -70,7 +70,7 @@ SERVO_CMDS = {
   'PGDOWN': { 'axis': 'Z', 'dir': +1 }
 }
 
-# user-enty variables: the values here will be affected by the user interaction
+# user-entry variables: the values here will be affected by the user interaction
 # these are stored in a restart file and re-read from there if possible
 # user-saved positions will be stored here
 POSITIONS = {}
@@ -79,7 +79,7 @@ POSITIONS = {}
 # (where here all times are measured in reference to the time where
 # the temperature control of this profile became active)
 # via T(t) = Tmin + (Tmax-Tmin)*(t-ts)/dt
-# we also defined a maximum time to spend in this ramp
+# we also define a maximum time to spend in this ramp
 # this is only used as a waiting time, not by the temperature controller
 TEMPERATURES = {
   'default': { 'Tmin': 25, 'Tmax': 40, 'dt': 30, 'ts': 10, 'tmax': 90 }
@@ -123,6 +123,9 @@ debug = False
 
 ## methods to deal with keyboard input
 
+# these are the scan codes that we get from the ANSI terminal
+# (or at least enough bytes after the esc byte for the special keys
+# in order to recognize them reliably enough)
 key_mapping = {
   9: 'tab', 10: 'return', 27: 'esc', 32: 'space',
   (91,65): 'up', (91,66): 'down', (91,67): 'right', (91,68): 'left',
@@ -193,6 +196,9 @@ class MotorDriver (scservo_sdk.sms_sts):
             raise Exception("failed to open servo port")
         if not self.portHandler.setBaudRate(baudrate):
             raise Exception("failed to set servo baud rate")
+    # comm,err are a tuple usually returned by the waveshare code functions
+    # as convenience wrapper, check for errors, inform user,
+    # and return True/False as success status for motor actions
     def success (self, comm, err, log=None, strict=False):
         _success = True
         if comm != scservo_sdk.COMM_SUCCESS:
@@ -204,21 +210,30 @@ class MotorDriver (scservo_sdk.sms_sts):
                 log.write("RxERR " + self.getRxPacketError(err))
             _success = False
         return _success
+    # setting a position makes the servo move there, but the call is
+    # non-blocking; if we want to make sure the servo arrived, we need
+    # to query its "moving" status and wait
     def WaitMoving (self, scs_id):
         moving = True
         while moving:
-            time.sleep(0.2)
+            time.sleep(0.2) # seemed crucial for timing issues
             mov, comm, err = self.ReadMoving(scs_id)
             if self.success(comm, err):
                 moving = mov
         return
     # the following add to the underlying driver some calls that
     # are for some reason not implemented
+    # wave share dirver has a function to put us _into_ wheel mode,
+    # but not out of it...
     def WheelMode (self, scs_id, wheel=True):
         return self.write1ByteTxRx(scs_id, scservo_sdk.SMS_STS_MODE, int(wheel))
+    # resetting the servo internal position counter to the middle position
+    # is implemented in the Arduino C library but not in python library
     def SetMiddle (self, scs_id):
         return self.write1ByteTxRx(scs_id, scservo_sdk.SMS_STS_TORQUE_ENABLE, 128)
     # the following fixes a real bug in the python SDK
+    # the handling of negative positions was wrong, the code below is
+    # adapted from the Arduino C library
     def WritePosEx (self, scs_id, position, speed, acc):
         pos = position
         if pos < 0:
@@ -252,6 +267,7 @@ class ServoMonitor():
                 log.write(str(status)+" T="+str(temp_sensor.temperature))
             self.next_t += self.increment
             threading.Timer(self.next_t - time.time(), self._run).start()
+    # update: query the motor positions, try to detect wrap-arounds
     def update_pos (self,detect_wrap=True):
         success = True
         newpos = { _:0 for _ in axes }
@@ -303,6 +319,7 @@ def find_all_servos():
         log.err("unexpected servo configuration found, continuing anyway")
     return axes
 
+# set all motor velocities to zero
 def stop_all_servos ():
     global axes
     success = True
@@ -314,20 +331,6 @@ def stop_all_servos ():
             success = False
     return success
 
-## LED handling
-
-class LED():
-    def __init__ (self, gpio_pin):
-        self.led = gpiozero.LED(gpio_pin)
-        self.led.off()
-        self.led_on = False
-    def toggle (self):
-        if self.led_on:
-            self.led.off()
-            self.led_on = False
-        else:
-            self.led.on()
-            self.led_on = True
 
 
 ## global objects
