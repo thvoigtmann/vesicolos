@@ -876,6 +876,7 @@ if not stop:
 ## SHUTDOWN
 
 print('SHUTDOWN')
+os.sync()
 
 if camera is not None:
     camera.stop()
