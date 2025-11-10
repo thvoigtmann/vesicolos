@@ -35,7 +35,7 @@ Raspberry GPIO pin layout (using GPIO numbers, not physical pin numbers):
   ```
   These should have the effect that UART is enabled, 2 hardware PWM channels
   are enabled, and WiFi is off. Also the Raspberry 5 should be forced to
-  ignored the underpower warning if it things that our power supply cannot
+  ignore the underpower warning if it thinks that our power supply cannot
   handle 5V/5A (it can).
 - The EEPROM config should be adapted with the `rpi-eeprom-config` tool.
   The flight configuration (MAPHEUS-16) was
