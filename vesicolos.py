@@ -1,4 +1,4 @@
-import sys, os, tty, termios, select
+import sys, os, tty, termios, select, psutil
 import time
 import threading, signal
 import json
@@ -160,6 +160,21 @@ def getkey(timeout=1):
     finally:
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
     return res
+
+# we want to be able to kill the camera preview program that might be running
+# in the interactive phase, otherwise our recordings would fail
+rpicam_process = 'rpicam-vid'
+def kill_proc_by_name(name):
+   # find processes by name using pstuil
+   processes = [proc for proc in psutil.process_iter(['name']) \
+                if proc.info['name'] == name]
+   for proc in processes:
+      try:
+         proc.kill()
+      except psutil.NoSuchProcess:
+         print(f"No such process: {proc.pid}")
+      except psutil.AccessDenied:
+         print(f"Access denied to {proc.pid}")
 
 
 ## logging
@@ -348,7 +363,7 @@ spi = board.SPI()
 cs = digitalio.DigitalInOut(GPIO_TEMP)
 temp_sensor = adafruit_max31865.MAX31865(spi, cs, \
     rtd_nominal=RTD_NOMINAL, ref_resistor=RTD_REFERENCE, wires=RTD_WIRES)
-                                        
+
 log = Logger(logfile)
 temperature_log = Logger(temperature_logfile)
 
@@ -624,14 +639,20 @@ while not status['LO']:
         case 'C':
             if camera is not None:
                 camera.stop()
+            # kill external previewer app if running, we want the cam ours now
+            kill_proc_by_name(rpicam_process)
             ckey = last_savepos or 'launch'
             ckey += '{i:02d}'
             i = 1
             while ckey.format(i=i) in recordings:
                 i += 1
             ckey = ckey.format(i=i)
-            camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
-            threading.Thread(target=camera.record).start()
+            try:
+                camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
+                threading.Thread(target=camera.record).start()
+            except RuntimeError as e:
+                camera = None
+                print("ERROR starting camera",str(e))
         case '?':
             print ("menu:")
             print ("left/right/up/down: change x/y velocity")
@@ -664,15 +685,22 @@ if not stop:
         # we record the ascent for sure, but if the user started before
         # we do not interrupt them
         if camera is None:
-            camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff'})
-            threading.Thread(target=camera.record).start()
+            # kill external previewer app if running, we want the cam ours now
+            kill_proc_by_name(rpicam_process)
+            try:
+                camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff'})
+                threading.Thread(target=camera.record).start()
+            except RuntimeError as e:
+                camera = None
+                log.err("camera error "+str(e))
         while not GPIO.input(STATUS_PINS['mug']):
             log.write("waiting for microgravity")
             time.sleep(0.5)
             if time.time() - t0 >= SOE_TIMEOUT:
                 log.write("SOE by timeout")
                 break
-        camera.stop()
+        if camera is not None:
+            camera.stop()
         status['mug'] = True
 
 
@@ -748,8 +776,12 @@ def microgravity_experiment ():
     led.on()
     while status['mug'] or manual_lift_off:
         for pos in positions:
-            camera = CameraController(camfile,pts=ptsfile,keys={'pos':pos})
-            threading.Thread(target=camera.record).start()
+            try:
+                camera = CameraController(camfile,pts=ptsfile,keys={'pos':pos})
+                threading.Thread(target=camera.record).start()
+            except RuntimeError as e:
+                camera = None
+                log.err('camera error '+str(e))
             if not pos == 'default':
                 move_to_stored_position (pos)
                 do_zstack = True
@@ -794,7 +826,8 @@ def microgravity_experiment ():
             if 'Z' in axes:
                 motorDriver.WheelMode(scs_id, True)
                 time.sleep(0.2)
-            camera.stop()
+            if not camera is None:
+                camera.stop()
 
 
 if not stop:
