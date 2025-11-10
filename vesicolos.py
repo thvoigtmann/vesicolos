@@ -48,11 +48,11 @@ ST_MOVING_ACC_SLOW = 10        # servo acceleration for slow movements
 MONITOR_INTERVAL = 1           # interval in seconds for the motor monitor
 # for zstack: we have 1 turn = 4096 steps = 100mu
 # aim for slices 1mu apart => stepsize = 40 steps = 0.98mu
-# 20 such steps (half below, half above target) => scan depth 800steps=19.5mu
+# 30 such steps (half below, half above target) => scan depth 1200steps=29.3mu
 # we also specify the waiting time on each z position in the stack
 MOTOR_DZ_STEPSIZE = 40         # in steps, 4096 steps = 100mu
-MOTOR_DZ_STEPS = 20            # number of steps, scan depth = steps*stepsize
-MOTOR_DZ_WAIT = 1              # in seconds, wait time at each step
+MOTOR_DZ_STEPS = 30            # number of steps, scan depth = steps*stepsize
+MOTOR_DZ_WAIT = 0.1            # in seconds, wait time at each step
 
 # servo configuration for the three axes
 # values with lower-case names will be modified by the program
@@ -83,7 +83,7 @@ POSITIONS = {}
 # we also defined a maximum time to spend in this ramp
 # this is only used as a waiting time, not by the temperature controller
 TEMPERATURES = {
-  'default': { 'Tmin': 25, 'Tmax': 40, 'dt': 30, 'ts': 20, 'tmax': 120 }
+  'default': { 'Tmin': 25, 'Tmax': 40, 'dt': 60, 'ts': 30, 'tmax': 180 }
 }
 def T(t,Tmin,Tmax,dt,ts):
     tau = t-ts
