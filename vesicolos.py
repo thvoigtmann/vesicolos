@@ -292,9 +292,9 @@ class ServoMonitor():
         if success and detect_wrap:
             for ax in axes:
                 vel = SERVOS[ax]['current_speed']
-                if vel>0 and newpos[ax] < self.pos[ax]:
+                if vel>0 and self.pos[ax] > ST_STEPS/2 and newpos[ax] < self.pos[ax]:
                     self.wrap[ax] += 1
-                if vel<0 and newpos[ax] > self.pos[ax]:
+                if vel<0 and self.pos[ax] < ST_STEPS/2 and newpos[ax] > self.pos[ax]:
                     self.wrap[ax] -= 1
                 if vel==0:
                     if newpos[ax] < 100 and self.pos[ax] > ST_STEPS-100:
