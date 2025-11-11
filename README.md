@@ -33,7 +33,10 @@ hardware setup:
 
 - Temperature sensor on SPI, 2-wire setup using Adafruit MAX31865 board.
 - LED and Heater on PWM channels.
-- Servo motors controlled by a Waveshare driver.
+- Servo motors [](https://www.waveshare.com/wiki/ST3020_Servo)
+  controlled by a Waveshare driver.
+  - Stage movement (X/Y): 2.3mm per turn of 4096 steps
+  - Focus movement (Z): 0.1mm per turn of 4096 steps
 
 Raspberry GPIO pin layout (using GPIO numbers, not physical pin numbers):
 
