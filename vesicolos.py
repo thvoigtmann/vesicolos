@@ -402,13 +402,14 @@ class CameraController ():
         imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
         pts = self.ptsfile.format(**self.imgpath_keys)
         self.picam.start_recording(self.encoder, imgfile, pts=pts)
-        print("cam recording",imgfile)
+        print("START cam recording",imgfile)
         # should have some sort of interruptible loop here if we write
         # single frames ourselves... (because our stop() method should
         # be callable)
     def stop (self):
         self.stop_ = True
         self.picam.stop_recording()
+        print("STOP cam recording")
         self.picam.close()
 
 
@@ -666,19 +667,21 @@ while not status['LO']:
         case 'C':
             if camera is not None:
                 camera.stop()
-            ckey = last_savepos or 'launch'
-            ckey += '{i:02d}'
-            i = 1
-            while ckey.format(i=i) in recordings:
-                i += 1
-            ckey = ckey.format(i=i)
-            recordings.append(ckey)
-            try:
-                camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
-                threading.Thread(target=camera.record).start()
-            except RuntimeError as e:
                 camera = None
-                print("ERROR starting camera",str(e))
+            else:
+                ckey = last_savepos or 'launch'
+                ckey += '{i:02d}'
+                i = 1
+                while ckey.format(i=i) in recordings:
+                    i += 1
+                ckey = ckey.format(i=i)
+                recordings.append(ckey)
+                try:
+                    camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
+                    threading.Thread(target=camera.record).start()
+                except RuntimeError as e:
+                    camera = None
+                    print("ERROR starting camera",str(e))
         case '?':
             print ("menu:")
             print ("left/right/up/down: change x/y velocity")
