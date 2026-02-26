@@ -2,13 +2,39 @@ import os, sys
 import termios,tty
 import select
 
-key_mapping = {
-  9: 'tab', 10: 'return', 27: 'esc', 32: 'space',
-  (91,65): 'up', (91,66): 'down', (91,67): 'right', (91,68): 'left',
-  (79,80): 'f1', (79,81): 'f2', (79,82): 'f3', (79,83): 'f4',
-  (91,53): 'pgup', (91,54): 'pgdown',
-  127: 'backspace'
-}
+from enum import IntEnum
+
+class Keys(IntEnum):
+    TAB = 9
+    RETURN = 10
+    ESC = 27
+    SPACE = 32
+    UP = 91*255 + 65
+    DOWN = 91*255 + 66
+    RIGHT = 91*255 + 67
+    LEFT = 91*255 + 68
+    F1 = 79*255 + 81
+    F2 = 79*255 + 82
+    F3 = 79*255 + 83
+    F4 = 79*255 + 84
+    PGUP = 91*255 + 53
+    PGDOWN = 91*255 + 54
+    BACKSPACE = 127
+
+    @classmethod
+    def has_value(cls, value: int) -> bool:
+        return value in cls._value2member_map_
+
+SERVO_CMDS = { int(k):m for k,m in {
+    Keys.LEFT:   { 'axis': 'Y', 'dir': +1 },
+    Keys.RIGHT:  { 'axis': 'Y', 'dir': -1 },
+    Keys.DOWN:   { 'axis': 'X', 'dir': -1 },
+    Keys.UP:     { 'axis': 'X', 'dir': +1 },
+    Keys.PGUP:   { 'axis': 'Z', 'dir': -1 },
+    Keys.PGDOWN: { 'axis': 'Z', 'dir': +1 }
+}.items() }
+
+
 
 
 def getkey():
@@ -26,10 +52,12 @@ def getkey():
             b = os.read(sys.stdin.fileno(), 4).decode()
             if len(b) >= 3:
                 k = ord(b[2])
-                res = key_mapping.get((ord(b[1]),k), chr(k))
+                res = ord(b[1])*255 + ord(b[2])
+                #res = key_mapping.get((ord(b[1]),k), chr(k))
             else:
                 k = ord(b)
-                res = key_mapping.get(k, chr(k))
+                res = k
+                #res = key_mapping.get(k, chr(k))
     finally:
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
     return res
@@ -40,6 +68,15 @@ while True:
         print("press key")
         ch = getkey()
     print("CH",ch)
-    ch = ch.upper()
-    if ch == 'ESC':
+    if ch == Keys.ESC:
        break
+    match ch:
+        case ch if ch >= Keys.PGUP and ch <= Keys.LEFT:
+            print(SERVO_CMDS)
+            ax = SERVO_CMDS[ch]['axis']
+            direction = SERVO_CMDS[ch]['dir']
+            print("move",ax,direction)
+
+    #ch = ch.upper()
+    #if ch == 'ESC':
+    #   break

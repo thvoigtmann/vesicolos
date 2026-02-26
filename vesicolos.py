@@ -2,6 +2,7 @@ import sys, os, tty, termios, select, psutil
 import time
 import threading, signal
 import json
+import logging
 
 import RPi.GPIO as GPIO
 import gpiozero                            # used for PWM (LED and heater)
@@ -11,7 +12,8 @@ GPIO.setmode(GPIO.BCM)
 import picamera2
 
 # local repositories
-import scservo_sdk                         # used for motor driver
+sys.path.append('python-st3215/src')
+from python_st3215 import ST3125
 
 ## global settings
 
@@ -37,8 +39,9 @@ RTD_REFERENCE = 4300           # MAX31865 board uses 4300ohm reference
 RTD_WIRES = 2                  # temp sensor is attached in 2-wire setup
 # motor settings
 ST_BAUDRATE = 1000000          # UART baud rate for ST servo driver
+ST_DEVICE = { '_default_': '/dev/ttyS0', # UART device (Raspberry 4)
+              '5': '/dev/ttyAMA0' }      # UART device (Raspberry 5)
 ST_DEVICE = '/dev/ttyAMA0'     # UART device (Raspberry 5)
-#ST_DEVICE = '/dev/ttyS0'      # UART device (Raspberry 4)
 ST_STEPS = 4096                # steps per full turn in the servo
 ST_MAX_WRAPS = 7               # how many turns the servo can resolve
 ST_MIDDLE = 2048               # middle position set by zeroing the servo
@@ -60,6 +63,8 @@ MOTOR_TIMEOUT = 30              # seconds until motor stop in unattended UI mode
 # servo configuration for the three axes
 # values with lower-case names will be modified by the program
 # the IDs are hard-coded in the motors
+SERVO_AXIS_MAP = { 0: 'X', 9: 'Y', 1: 'Z' }
+# TODO cleanup
 SERVOS = {
   'X': { 'ID': 0, 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
   'Y': { 'ID': 9, 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
@@ -185,6 +190,7 @@ def kill_proc_by_name(name):
 
 ## logging
 
+# TODO remove Logger, use logging module but add timestamps in format
 class Logger():
     def __init__ (self, logfile):
         self.logfile = open(logfile, 'w')
@@ -204,71 +210,72 @@ class Logger():
         self.logfile.flush()
         print("*** ERR ***",msg)
 
-## motor driver and motor handling stuff
+## motor handling stuff
 
-# wrapper around the scservo_sdk from waveshare
-# adds some convenience functions and fixes some functionality bugs
+class Motors:
+    mode_names = { 0: "position", 1: "wheel", 2: "PWM", 3: "stepper" }
+    def __init__ (self, device, axes_map={}):
+        self.controller = ST3215(device)
+        log.info("Scanning for servos.")
+        old_level = self.controller.logger.level
+        self.controller.logger.setLevel(logging.ERROR)
+        self.axes = []
+        self._servos = {}
+        self.servo_ids = self.controller.list_servos()
+        if not self.servo_ids:
+            log.error("no servos found")
+        else:
+            self.controller.logger.setLevel(old_level)
+            log.info("found %d servos" % len(self.servo_ids))
+            for servo_id in self.servo_ids:
+                servo = self.controller.wrap_servo(servo_id)
+                if servo_id in axes_map:
+                    axis = axes_map[servo_id]
+                    infostr = axis + " axis "
+                else:
+                    axis = None
+                    infostr = ''
+                log.info(f"{infostr}SERVO ID {servo_id} pos {servo.sram.read_current_location()} mode {self.mode_names.get(servo.eeprom.read_operating_mode(),'UNKNOWN')}")
+                log.debug(f"SERVO ID {servo_id} U={servo.sram.read_current_voltage() / 10:.1f}V, T={servo.sram.read_current_temperature()}°C")
+                self._servos[servo_id] = servo
+                if axis:
+                    self._servos[axis] = servo
+            found_all_axes = True
+            for ax in sorted(list(set(axes_map.values()))):
+                if ax in self._servos:
+                    self.axes.append(ax)
+                else:
+                    found_all_axes = False
+            if not found_all_axes:
+                log.err("unexpected servo configuration found, continuing anyway")
+        try:
+            from python_st3215 import Servo
+            self._servos[10] = Servo(controller=self.controller,servo_id=10)
+        except Exception as e:
+            print(e)
+            pass
+        print(self._servos)
+    def __enter__ (self):
+        return self
+    def __exit__ (self, exc_type, exc_value, traceback):
+        log.debug("stopping all motors")
+        self.stop_all()
+        log.debug("closing motor controller")
+        self.controller.close()
+    def stop_all (self):
+        """Stop all servos"""
+        self.controller.broadcast.sram.sync_write_running_speed(
+                {servo.id: 0 for servo in self._servos.values()}
+        )
+        # update current_speed variables?
 
-class MotorDriver (scservo_sdk.sms_sts):
-    def __init__ (self, devicename, baudrate):
-        self.portHandler = scservo_sdk.PortHandler(devicename)
-        scservo_sdk.sms_sts.__init__ (self, self.portHandler)
-        if not self.portHandler.openPort():
-            raise Exception("failed to open servo port")
-        if not self.portHandler.setBaudRate(baudrate):
-            raise Exception("failed to set servo baud rate")
-    # comm,err are a tuple usually returned by the waveshare code functions
-    # as convenience wrapper, check for errors, inform user,
-    # and return True/False as success status for motor actions
-    def success (self, comm, err, log=None, strict=False):
-        _success = True
-        if comm != scservo_sdk.COMM_SUCCESS:
-            if not log is None:
-                log.write("TxRx  " + self.getTxRxResult(comm))
-                _success = False
-        if err != 0:
-            if not log is None:
-                log.write("RxERR " + self.getRxPacketError(err))
-            _success = False
-        return _success
-    # setting a position makes the servo move there, but the call is
-    # non-blocking; if we want to make sure the servo arrived, we need
-    # to query its "moving" status and wait
-    def WaitMoving (self, scs_id):
-        moving = True
-        while moving:
-            time.sleep(0.2) # seemed crucial for timing issues
-            mov, comm, err = self.ReadMoving(scs_id)
-            if self.success(comm, err):
-                moving = mov
-        return
-    # the following add to the underlying driver some calls that
-    # are for some reason not implemented
-    # wave share dirver has a function to put us _into_ wheel mode,
-    # but not out of it...
-    def WheelMode (self, scs_id, wheel=True):
-        return self.write1ByteTxRx(scs_id, scservo_sdk.SMS_STS_MODE, int(wheel))
-    # resetting the servo internal position counter to the middle position
-    # is implemented in the Arduino C library but not in python library
-    def SetMiddle (self, scs_id):
-        return self.write1ByteTxRx(scs_id, scservo_sdk.SMS_STS_TORQUE_ENABLE, 128)
-    # the following fixes a real bug in the python SDK
-    # the handling of negative positions was wrong, the code below is
-    # adapted from the Arduino C library
-    def WritePosEx (self, scs_id, position, speed, acc):
-        pos = position
-        if pos < 0:
-            pos = (-pos) | (1<<15)
-        txpacket = [acc, self.scs_lobyte(pos), self.scs_hibyte(pos), 0, 0, self.scs_lobyte(speed), self.scs_hibyte(speed)]
-        return self.writeTxRx(scs_id, scservo_sdk.SMS_STS_ACC, len(txpacket), txpacket)
-    # convenience wrapper for moving
-    def GotoPos (self, scs_id, position):
-        comm, err = self.WritePosEx(scs_id, position, 0, ST_MOVING_ACC)
-        _success = self.success(comm, err)
-        if _success:
-            self.WaitMoving(scs_id)
-        return _success
+# the stuff that follows here would be ideally in the Servo API?
+def ServoWheelMode (servo):
+    servo.eeprom.write_operating_mode(1)
+    #servo.sram.torque_enable()
 
+
+# TODO the following needs updating
 # monitor for servo positions
 # we also output signal status here for convenience
 class ServoMonitor():
@@ -317,43 +324,6 @@ class ServoMonitor():
         self.done = False
         self._run()
 
-# find all servos that are connected, return axes array
-# listing those axes ('X', 'Y', 'Z') that we can control
-def find_all_servos():
-    detected_servos = []
-    for SCS_ID in range(ST_MAX_ID+1):
-        model, comm, err = motorDriver.ping(SCS_ID)
-        if motorDriver.success(comm, err, log, strict=True):
-            print("[ID:%03d] found SCServo model %d" % (SCS_ID, model))
-            detected_servos.append(SCS_ID)
-    log.write("found %d servos" % len(detected_servos))
-    # see if we can map the servos that we found to the axes we expect
-    axes = []
-    found_all_servos = True
-    for ax in sorted(SERVOS.keys()):
-        if SERVOS[ax]['ID'] in detected_servos:
-            axes.append(ax)
-            motorDriver.WheelMode(SERVOS[ax]['ID'], True)
-        else:
-            found_all_servos = False
-    if not found_all_servos:
-        log.err("unexpected servo configuration found, continuing anyway")
-    return axes
-
-# set all motor velocities to zero
-def stop_all_servos ():
-    global axes, motor_moving
-    success = True
-    for ax in axes:
-        comm, err = motorDriver.WriteSpec(SERVOS[ax]['ID'], 0, ST_MOVING_ACC)
-        if motorDriver.success (comm, err):
-            SERVOS[ax]['current_speed'] = 0
-        else:
-            success = False
-    if success:
-        motor_moving = False
-    return success
-
 
 
 ## global objects
@@ -375,14 +345,13 @@ temp_sensor = adafruit_max31865.MAX31865(spi, cs, \
 log = Logger(logfile)
 temperature_log = Logger(temperature_logfile)
 
-# motor driver, UART taken care of by the WaveShare SCServo kit (patched)
-try:
-    motorDriver = MotorDriver (ST_DEVICE, ST_BAUDRATE)
-except Exception as err:
-    log.error(str(err))
+# set UART device depending on raspberry model or environment variables
+rpi_model = os.environ.get("RASPI_MODEL","_default_")
+log.info(f"assuming Raspberry model {rpi_model}")
+st_device = ST_DEVICE.get(rpi_model,ST_DEVICE['_default_'])
+st_device = os.environ.get("ST_DEVICE",st_device)
+log.info(f"using {st_device} as UART device")
 
-axes = find_all_servos()
-stop_all_servos()
 
 # camera controller, used later
 class CameraController ():
@@ -462,10 +431,6 @@ threading.Thread(target=save_restart).start()
 
 
 
-# FIRST PHASE
-
-# before lift off we are connected via umbilical
-# allow user to remote control with keyboard commands
 
 # a key point here is to be able to move the motors, store some
 # positions of interest, and be able to return to them automatically
@@ -534,142 +499,307 @@ def move_to_stored_position (poskey):
         log.err(str(err))
 
 
+## MAIN
+
 # this is the main before-lift-off loop for user interaction
+
+# before lift off we are connected via umbilical
+# allow user to remote control with keyboard commands
 
 last_savepos = None
 camera = None
 recordings = []
 motor_timeout = MOTOR_TIMEOUT
-while not status['LO']:
-    ch = None
-    ch = getkey()
-    if ch is None:
-        if motor_moving and motor_timeout > 0:
-            motor_timeout -= 1
-            if motor_timeout <= 0:
-                if stop_all_servos():
-                    motor_timeout = MOTOR_TIMEOUT
-        continue
-    ch = ch.upper()
-    match ch:
-        case 'ESC':
-            stop = True
-            print("BYE")
-            break
-        case 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'PGUP' | 'PGDOWN':
-            ax = SERVO_CMDS[ch]['axis']
-            direction = SERVO_CMDS[ch]['dir']
-            vel = SERVOS[ax]['current_speed'] \
-                + direction*SERVOS[ax]['SPEED_INC']
-            comm, err = motorDriver.WriteSpec(SERVOS[ax]['ID'], vel, ST_MOVING_ACC)
-            if motorDriver.success(comm, err):
-                SERVOS[ax]['current_speed'] = vel
-            if not (vel==0):
-                motor_moving = True
-        case '0':
-            if stop_all_servos():
-                print ("stop")
-        case 'F1' | 'F2' | 'F3' | 'F4':
-            stop_all_servos()
-            if ch == 'H': # this is for the moment not used
-                poskey = 'homepos'
-                reset_wrap = True
-            else:
-                poskey = 'savepos'+ch[1]
-                reset_wrap = False
-            success = monitor.update_pos()
-            if success:
-                POSITIONS[poskey] = {}
-                for ax in axes:
-                    if reset_wrap:
-                        monitor.wrap[ax] = 0
-                    POSITIONS[poskey][ax] = (monitor.pos[ax],monitor.wrap[ax])
-                print ('saved',poskey,monitor.pos,monitor.wrap)
-                last_savepos = poskey
-        case '1' | '2' | '3' | '4':
-            if ch == 'R': # this is for the moment not used
-                poskey = 'homepos'
-            else:
-                poskey = 'savepos'+ch
-            if not (poskey in POSITIONS):
-                print ('no position',poskey,'saved')
-            else:
+with Motors(device=st_device, axes_map=SERVO_AXIS_MAP) as motors:
+
+    for ax in motors.axes:
+        ServoWheelMode(motors._servos[ax])
+        print("max torque",ax,motors._servos[ax].eeprom.read_max_torque())
+    motors.stop_all()
+    motor_moving = False
+
+    ## PHASE 1: USER INTERACTION BEFORE LIFT OFF
+    log.info("PHASE 1: INTERACTIVE MODE")
+    while not status['LO']:
+        #for ax in motors.axes:
+        #    print("torque",ax,motors._servos[ax].sram.read_current_load())
+        print(motors.controller.broadcast.sram.sync_read_current_load(motors.servo_ids))
+        ch = None
+        ch = getkey()
+        if ch is None:
+            # motor_moving time out
+            if motor_moving and motor_timeout > 0:
+                motor_timeout -= 1
+                if motor_timeout <= 0:
+                    if stop_all_servos():
+                        motor_timeout = MOTOR_TIMEOUT
+            continue
+        ch = ch.upper()
+        match ch:
+            case 'ESC':
+                stop = True
+                print("GOOD-BYE")
+                log.info("user exit (esc)")
+                break
+            case 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'PGUP' | 'PGDOWN':
+                ax = SERVO_CMDS[ch]['axis']
+                direction = SERVO_CMDS[ch]['dir']
+                vel = SERVOS[ax]['current_speed'] \
+                    + direction*SERVOS[ax]['SPEED_INC']
+                comm, err = motorDriver.WriteSpec(SERVOS[ax]['ID'], vel, ST_MOVING_ACC)
+                print("setting speed",vel)
+                res = motors._servos[ax].sram.write_running_speed(vel)
+                if res and not res['error']:
+                    SERVOS[ax]['current_speed'] = vel
+                if not (vel==0):
+                    # if we failed to set vel, err on the safe side here
+                    motor_moving = True
+            case '0':
+                motors.stop_all()
+            case 'F1' | 'F2' | 'F3' | 'F4':
                 stop_all_servos()
+                if ch == 'H': # this is for the moment not used
+                    poskey = 'homepos'
+                    reset_wrap = True
+                else:
+                    poskey = 'savepos'+ch[1]
+                    reset_wrap = False
+                success = monitor.update_pos()
+                if success:
+                    POSITIONS[poskey] = {}
+                    for ax in axes:
+                        if reset_wrap:
+                            monitor.wrap[ax] = 0
+                        POSITIONS[poskey][ax] = (monitor.pos[ax],monitor.wrap[ax])
+                    print ('saved',poskey,monitor.pos,monitor.wrap)
+                    last_savepos = poskey
+            case '1' | '2' | '3' | '4':
+                if ch == 'R': # this is for the moment not used
+                    poskey = 'homepos'
+                else:
+                    poskey = 'savepos'+ch
+                if not (poskey in POSITIONS):
+                    print ('no position',poskey,'saved')
+                else:
+                    stop_all_servos()
+                    time.sleep(0.2)
+                    monitor.stop()
+                    move_to_stored_position(poskey)
+                    monitor.start()
+                    last_savepos = poskey
+            case 'G':
+                stop_all_servos()
+                ax = input('axis? ').upper()
+                posstr = input('position (servo mode)? ')
+                if not ax in axes:
+                    print ("axis not found")
+                    continue
+                try:
+                    pos = int(posstr)
+                except ValueError:
+                    print ("illegal position")
+                    continue
+                motorDriver.WheelMode(SERVOS[ax]['ID'], False)
                 time.sleep(0.2)
-                monitor.stop()
-                move_to_stored_position(poskey)
-                monitor.start()
-                last_savepos = poskey
-        case 'G':
-            stop_all_servos()
-            ax = input('axis? ').upper()
-            posstr = input('position (servo mode)? ')
-            if not ax in axes:
-                print ("axis not found")
-                continue
-            try:
-                pos = int(posstr)
-            except ValueError:
-                print ("illegal position")
-                continue
-            motorDriver.WheelMode(SERVOS[ax]['ID'], False)
-            time.sleep(0.2)
-            motorDriver.GotoPos(SERVOS[ax]['ID'], pos)
-            time.sleep(0.2)
-            motorDriver.WheelMode(SERVOS[ax]['ID'], True)
-        case 'W':
-            stop_all_servos()
-            wheelpos = { _: 0 for _ in axes }
-            servopos = { _: 0 for _ in axes }
-            for ax in axes:
-                scs_id = SERVOS[ax]['ID']
-                wheelpos[ax], comm, err = motorDriver.ReadPos(scs_id)
+                motorDriver.GotoPos(SERVOS[ax]['ID'], pos)
                 time.sleep(0.2)
-                motorDriver.WheelMode(scs_id, False)
-                servopos[ax], comm, err = motorDriver.ReadPos(scs_id)
-                time.sleep(0.2)
-                motorDriver.WheelMode(scs_id, True)
-            print ("current position (wheel)",wheelpos)
-            print ("current position (servo)",servopos)
-        case 'L':
-            led.toggle()
-            log.write('LED {}'.format(['OFF','ON'][led.is_active]))
-        case 'H':
-            heater.toggle()
-            log.write('HEATER PWM active {} value {}'\
-                      .format(heater.is_active,heater.value))
-        case 'T':
-            tkey = last_savepos or 'default'
-            print ("enter temperature ramp parameters for",tkey,\
-                   "(empty for default)")
-            if tkey in TEMPERATURES:
-                tkey_defaults = tkey
-            else:
-                tkey_defaults = 'default'
-            Tmin, Tmax, dt, ts, tmax = (TEMPERATURES[tkey_defaults][_] \
-                for _ in ['Tmin','Tmax','dt','ts','tmax'])
-            Tminstr = input("Tmin = [{}]".format(Tmin))
-            Tmaxstr = input("Tmax = [{}]".format(Tmax))
-            dtstr = input("dt [{}] = ".format(dt))
-            tsstr = input("ts [{}] = ".format(ts))
-            tmaxstr = input("tmax [{}] = ".format(tmax))
-            try:
-                Tmin, Tmax, dt, ts, tmax = float(Tminstr), float(Tmaxstr), \
-                    float(dtstr), float(tsstr), float(tmaxstr)
-                TEMPERATURES[tkey] = { 'Tmin': Tmin, 'Tmax': Tmax, \
-                                       'dt': dt, 'ts': ts, 'tmax': tmax }
-            except ValueError:
-                print("illegal input, ignoring")
-        case 'X':
-            log.write("MANUAL LIFT OFF")
-            manual_lift_off = True
-            status['LO'] = True
-        case 'C':
+                motorDriver.WheelMode(SERVOS[ax]['ID'], True)
+            case 'W':
+                stop_all_servos()
+                wheelpos = { _: 0 for _ in axes }
+                servopos = { _: 0 for _ in axes }
+                for ax in axes:
+                    scs_id = SERVOS[ax]['ID']
+                    wheelpos[ax], comm, err = motorDriver.ReadPos(scs_id)
+                    time.sleep(0.2)
+                    motorDriver.WheelMode(scs_id, False)
+                    servopos[ax], comm, err = motorDriver.ReadPos(scs_id)
+                    time.sleep(0.2)
+                    motorDriver.WheelMode(scs_id, True)
+                print ("current position (wheel)",wheelpos)
+                print ("current position (servo)",servopos)
+            case 'L':
+                led.toggle()
+                log.write('LED {}'.format(['OFF','ON'][led.is_active]))
+            case 'H':
+                heater.toggle()
+                log.write('HEATER PWM active {} value {}'\
+                          .format(heater.is_active,heater.value))
+            case 'T':
+                tkey = last_savepos or 'default'
+                print ("enter temperature ramp parameters for",tkey,\
+                       "(empty for default)")
+                if tkey in TEMPERATURES:
+                    tkey_defaults = tkey
+                else:
+                    tkey_defaults = 'default'
+                Tmin, Tmax, dt, ts, tmax = (TEMPERATURES[tkey_defaults][_] \
+                    for _ in ['Tmin','Tmax','dt','ts','tmax'])
+                Tminstr = input("Tmin = [{}]".format(Tmin))
+                Tmaxstr = input("Tmax = [{}]".format(Tmax))
+                dtstr = input("dt [{}] = ".format(dt))
+                tsstr = input("ts [{}] = ".format(ts))
+                tmaxstr = input("tmax [{}] = ".format(tmax))
+                try:
+                    Tmin, Tmax, dt, ts, tmax = float(Tminstr), float(Tmaxstr), \
+                        float(dtstr), float(tsstr), float(tmaxstr)
+                    TEMPERATURES[tkey] = { 'Tmin': Tmin, 'Tmax': Tmax, \
+                                           'dt': dt, 'ts': ts, 'tmax': tmax }
+                except ValueError:
+                    print("illegal input, ignoring")
+            case 'X':
+                log.write("MANUAL LIFT OFF")
+                manual_lift_off = True
+                status['LO'] = True
+            case 'C':
+                if camera is not None:
+                    camera.stop()
+                    camera = None
+                else:
+                    ckey = last_savepos or 'launch'
+                    ckey += '{i:02d}'
+                    i = 1
+                    while ckey.format(i=i) in recordings:
+                        i += 1
+                    ckey = ckey.format(i=i)
+                    recordings.append(ckey)
+                    try:
+                        camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
+                        threading.Thread(target=camera.record).start()
+                    except RuntimeError as e:
+                        camera = None
+                        print("ERROR starting camera",str(e))
+            case '?':
+                print ("menu:")
+                print ("left/right/up/down: change x/y velocity")
+                print ("pgup/pgdown: change z velocity (focus)")
+                print ("0: stop motors")
+                print ("g : Goto position (one axis, in servo mode)")
+                print ("w : Where are we? print current positions")
+                print ('l : LED toggle')
+                print ('h : Heater toggle')
+                print ('t : Temperature set points')
+                print ('c : Start camera')
+                print ('x : manual liftoff')
+                print ("F1-F4: store positions")
+                print ("1-4: recall positions")
+                for i in range(1,5):
+                    poskey = 'savepos'+str(i)
+                    if poskey in POSITIONS:
+                        print (' ',poskey,POSITIONS[poskey])
+    
+    
+    # cleanup
+    motors.stop_all()
+    for ax in motors.axes:
+        ServoWheelMode(motors._servos[ax])
+
+    #  SECOND PHASE
+    
+    # we have a lift-off, so remote control is off now
+    
+    if not stop:
+        stop_all_servos()
+        if not manual_lift_off:
+            # this is a real lift off, we wait for mug now
+            t0 = time.time()
+            # we record the ascent for sure, but if the user started before
+            # we do not interrupt them
+            if camera is None:
+                # kill external previewer app if running, we want the cam ours now
+                kill_proc_by_name(rpicam_process)
+                try:
+                    camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff'})
+                    threading.Thread(target=camera.record).start()
+                    led.on()
+                except RuntimeError as e:
+                    camera = None
+                    log.err("camera error "+str(e))
+            while not GPIO.input(STATUS_PINS['mug']):
+                log.write("waiting for microgravity")
+                time.sleep(0.5)
+                if time.time() - t0 >= SOE_TIMEOUT:
+                    log.write("SOE by timeout")
+                    break
             if camera is not None:
                 camera.stop()
-                camera = None
-            else:
-                ckey = last_savepos or 'launch'
+            status['mug'] = True
+    
+    
+    
+    ## THIRD PHASE: MICROGRAVITY EXPERIMENT
+    
+    
+    # microgravity timeout: handled by UNIX ALRM signal
+    # but the loop here polls the mug pin and sends the signal once that
+    # flag goes off, cancelling possibly before
+    def microgravity_timeout ():
+        global status
+        #signal.alarm(EXP_TIMEOUT)
+        t0 = time.time()
+        while MUG_STICKY or GPIO.input(STATUS_PINS['mug']) or manual_lift_off:
+            time.sleep(1)
+            if time.time() - t0 >= EXP_TIMEOUT:
+                log.write("SOE OFF by timeout")
+                break
+        status['mug'] = MUG_STICKY or bool(GPIO.input(STATUS_PINS['mug'])) \
+                        or manual_lift_off
+        log.write("END OF MUG")
+        signal.raise_signal(signal.SIGALRM)
+    
+    # the SIGALRM handler is responsible for raising the exception that will
+    # interrupt the microgravity_experiment() function
+    class MicrogravityTimeout (Exception):
+        pass
+    def mug_timeout_handler (signum, frame):
+        global status
+        if status['mug']:
+            # mug flag still on, thus we have been raised by timeout
+            raise MicrogravityTimeout("END OF EXPERIMENT by timeout")
+        else:
+            raise MicrogravityTimeout("END OF EXPERIMENT")
+    
+    
+    class TemperatureController ():
+        def __init__ (self):
+            self.set_profile (TEMPERATURES['default'])
+        def __del__ (self):
+            if heater is not None:
+                heater.off()
+        def set_profile (self, profile):
+            self.Tmin, self.Tmax, self.dt, self.ts = \
+                profile['Tmin'], profile['Tmax'], profile['dt'], profile['ts']
+            self.t0 = time.time()
+        def control (self):
+            while heater is not None:
+                t = time.time()
+                Ttarget = T(t-self.t0,self.Tmin,self.Tmax,self.dt,self.ts)
+                Tcurrent = temp_sensor.temperature
+                if Tcurrent < Ttarget:
+                    heater.on()
+                elif Tcurrent >= Ttarget:
+                    # we cannot currently cool
+                    # we could use PWM to heat less once we get near target
+                    # but this is not implemented yet
+                    heater.off()
+                temperature_log.write(\
+                    "t0 = {}, t = {}, T = {}, Ttarget = {}, heat {}" \
+                    .format(self.t0,t,Tcurrent,Ttarget,heater.is_active))
+                time.sleep(1)
+    
+    Tcontrol = TemperatureController()
+    
+    
+    
+    # CORE MICROGRAVITY EXPERIMENT PROCEDURE
+    
+    def microgravity_experiment ():
+        positions = sorted(POSITIONS.keys() or ['default'])
+        log.write("mug sequence: positions "+" / ".join(positions))
+        led.on()
+        while status['mug'] or manual_lift_off:
+            for pos in positions:
+                ckey = pos
                 ckey += '{i:02d}'
                 i = 1
                 while ckey.format(i=i) in recordings:
@@ -681,209 +811,71 @@ while not status['LO']:
                     threading.Thread(target=camera.record).start()
                 except RuntimeError as e:
                     camera = None
-                    print("ERROR starting camera",str(e))
-        case '?':
-            print ("menu:")
-            print ("left/right/up/down: change x/y velocity")
-            print ("pgup/pgdown: change z velocity (focus)")
-            print ("0: stop motors")
-            print ("g : Goto position (one axis, in servo mode)")
-            print ("w : Where are we? print current positions")
-            print ('l : LED toggle')
-            print ('h : Heater toggle')
-            print ('t : Temperature set points')
-            print ('c : Start camera')
-            print ('x : manual liftoff')
-            print ("F1-F4: store positions")
-            print ("1-4: recall positions")
-            for i in range(1,5):
-                poskey = 'savepos'+str(i)
-                if poskey in POSITIONS:
-                    print (' ',poskey,POSITIONS[poskey])
-
-
-#  SECOND PHASE
-
-# we have a lift-off, so remote control is off now
-
-if not stop:
-    stop_all_servos()
-    if not manual_lift_off:
-        # this is a real lift off, we wait for mug now
-        t0 = time.time()
-        # we record the ascent for sure, but if the user started before
-        # we do not interrupt them
-        if camera is None:
-            # kill external previewer app if running, we want the cam ours now
-            kill_proc_by_name(rpicam_process)
-            try:
-                camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff'})
-                threading.Thread(target=camera.record).start()
-                led.on()
-            except RuntimeError as e:
-                camera = None
-                log.err("camera error "+str(e))
-        while not GPIO.input(STATUS_PINS['mug']):
-            log.write("waiting for microgravity")
-            time.sleep(0.5)
-            if time.time() - t0 >= SOE_TIMEOUT:
-                log.write("SOE by timeout")
-                break
-        if camera is not None:
-            camera.stop()
-        status['mug'] = True
-
-
-
-## THIRD PHASE: MICROGRAVITY EXPERIMENT
-
-
-# microgravity timeout: handled by UNIX ALRM signal
-# but the loop here polls the mug pin and sends the signal once that
-# flag goes off, cancelling possibly before
-def microgravity_timeout ():
-    global status
-    #signal.alarm(EXP_TIMEOUT)
-    t0 = time.time()
-    while MUG_STICKY or GPIO.input(STATUS_PINS['mug']) or manual_lift_off:
-        time.sleep(1)
-        if time.time() - t0 >= EXP_TIMEOUT:
-            log.write("SOE OFF by timeout")
-            break
-    status['mug'] = MUG_STICKY or bool(GPIO.input(STATUS_PINS['mug'])) \
-                    or manual_lift_off
-    log.write("END OF MUG")
-    signal.raise_signal(signal.SIGALRM)
-
-# the SIGALRM handler is responsible for raising the exception that will
-# interrupt the microgravity_experiment() function
-class MicrogravityTimeout (Exception):
-    pass
-def mug_timeout_handler (signum, frame):
-    global status
-    if status['mug']:
-        # mug flag still on, thus we have been raised by timeout
-        raise MicrogravityTimeout("END OF EXPERIMENT by timeout")
-    else:
-        raise MicrogravityTimeout("END OF EXPERIMENT")
-
-
-class TemperatureController ():
-    def __init__ (self):
-        self.set_profile (TEMPERATURES['default'])
-    def __del__ (self):
-        if heater is not None:
-            heater.off()
-    def set_profile (self, profile):
-        self.Tmin, self.Tmax, self.dt, self.ts = \
-            profile['Tmin'], profile['Tmax'], profile['dt'], profile['ts']
-        self.t0 = time.time()
-    def control (self):
-        while heater is not None:
-            t = time.time()
-            Ttarget = T(t-self.t0,self.Tmin,self.Tmax,self.dt,self.ts)
-            Tcurrent = temp_sensor.temperature
-            if Tcurrent < Ttarget:
-                heater.on()
-            elif Tcurrent >= Ttarget:
-                # we cannot currently cool
-                # we could use PWM to heat less once we get near target
-                # but this is not implemented yet
-                heater.off()
-            temperature_log.write(\
-                "t0 = {}, t = {}, T = {}, Ttarget = {}, heat {}" \
-                .format(self.t0,t,Tcurrent,Ttarget,heater.is_active))
-            time.sleep(1)
-
-Tcontrol = TemperatureController()
-
-
-
-# CORE MICROGRAVITY EXPERIMENT PROCEDURE
-
-def microgravity_experiment ():
-    positions = sorted(POSITIONS.keys() or ['default'])
-    log.write("mug sequence: positions "+" / ".join(positions))
-    led.on()
-    while status['mug'] or manual_lift_off:
-        for pos in positions:
-            ckey = pos
-            ckey += '{i:02d}'
-            i = 1
-            while ckey.format(i=i) in recordings:
-                i += 1
-            ckey = ckey.format(i=i)
-            recordings.append(ckey)
-            try:
-                camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
-                threading.Thread(target=camera.record).start()
-            except RuntimeError as e:
-                camera = None
-                log.err('camera error '+str(e))
-            if not pos == 'default':
-                move_to_stored_position (pos)
-                do_zstack = True
-            else:
-                do_zstack = False
-            if pos in TEMPERATURES:
-                Tprofile = TEMPERATURES[pos]
-            else:
-                Tprofile = TEMPERATURES['default']
-            Tcontrol.set_profile (Tprofile)
-            # take some time, do z-stacks
-            tmax = Tprofile['tmax'] + time.time()
-            if 'Z' in axes:
-                scs_id = SERVOS['Z']['ID']
-                comm, err = motorDriver.WheelMode(scs_id, False)
-                # do_zstack shall only be true if we don't have
-                # motor errors
-                do_zstack &= motorDriver.success(comm, err)
-                time.sleep(0.2)
-                motorDriver.SetMiddle(scs_id)
-                do_zstack &= motorDriver.success(comm, err)
-                time.sleep(0.2)
-                # after set middle, motor is in servo mode, pos 2048
-                # set zpos to highest position first
-                zpos = 2048 + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
-                zcnt = 0
-                zdirection = -1
-                motorDriver.GotoPos (scs_id, zpos)
-                #motorDriver.WritePosEx (scs_id, zpos, 0, 0) # or ST_MOVING_ACC_SLOW
-            while True:
-                if do_zstack:
-                    if zcnt >= MOTOR_DZ_STEPS:
-                        zdirection = -zdirection
-                        zcnt = 0
-                    zcnt += 1
-                    zpos += zdirection*MOTOR_DZ_STEPSIZE
-                    motorDriver.GotoPos (scs_id, zpos) 
+                    log.err('camera error '+str(e))
+                if not pos == 'default':
+                    move_to_stored_position (pos)
+                    do_zstack = True
+                else:
+                    do_zstack = False
+                if pos in TEMPERATURES:
+                    Tprofile = TEMPERATURES[pos]
+                else:
+                    Tprofile = TEMPERATURES['default']
+                Tcontrol.set_profile (Tprofile)
+                # take some time, do z-stacks
+                tmax = Tprofile['tmax'] + time.time()
+                if 'Z' in axes:
+                    scs_id = SERVOS['Z']['ID']
+                    comm, err = motorDriver.WheelMode(scs_id, False)
+                    # do_zstack shall only be true if we don't have
+                    # motor errors
+                    do_zstack &= motorDriver.success(comm, err)
+                    time.sleep(0.2)
+                    motorDriver.SetMiddle(scs_id)
+                    do_zstack &= motorDriver.success(comm, err)
+                    time.sleep(0.2)
+                    # after set middle, motor is in servo mode, pos 2048
+                    # set zpos to highest position first
+                    zpos = 2048 + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
+                    zcnt = 0
+                    zdirection = -1
+                    motorDriver.GotoPos (scs_id, zpos)
                     #motorDriver.WritePosEx (scs_id, zpos, 0, 0) # or ST_MOVING_ACC_SLOW
-                time.sleep(MOTOR_DZ_WAIT)
-                if time.time() > tmax:
-                    break
-            if 'Z' in axes:
-                motorDriver.WheelMode(scs_id, True)
-                time.sleep(0.2)
-            if not camera is None:
-                camera.stop()
-
-
-if not stop:
-    # now start the actual measurement program
-    # timeout handling is done by SIGALRM here
-    # we now also need temperature control
-    signal.signal(signal.SIGALRM, mug_timeout_handler)
-    threading.Thread(target=microgravity_timeout).start()
-    temp_controller = TemperatureController ()
-    threading.Thread(target=temp_controller.control).start()
-    try:
-        microgravity_experiment()
-    except MicrogravityTimeout as msg:
-        log.write(str(msg))
-    signal.alarm(0) # clear any remaining ALRM signals
-
-
-
+                while True:
+                    if do_zstack:
+                        if zcnt >= MOTOR_DZ_STEPS:
+                            zdirection = -zdirection
+                            zcnt = 0
+                        zcnt += 1
+                        zpos += zdirection*MOTOR_DZ_STEPSIZE
+                        motorDriver.GotoPos (scs_id, zpos) 
+                        #motorDriver.WritePosEx (scs_id, zpos, 0, 0) # or ST_MOVING_ACC_SLOW
+                    time.sleep(MOTOR_DZ_WAIT)
+                    if time.time() > tmax:
+                        break
+                if 'Z' in axes:
+                    motorDriver.WheelMode(scs_id, True)
+                    time.sleep(0.2)
+                if not camera is None:
+                    camera.stop()
+    
+    
+    if not stop:
+        # now start the actual measurement program
+        # timeout handling is done by SIGALRM here
+        # we now also need temperature control
+        signal.signal(signal.SIGALRM, mug_timeout_handler)
+        threading.Thread(target=microgravity_timeout).start()
+        temp_controller = TemperatureController ()
+        threading.Thread(target=temp_controller.control).start()
+        try:
+            microgravity_experiment()
+        except MicrogravityTimeout as msg:
+            log.write(str(msg))
+        signal.alarm(0) # clear any remaining ALRM signals
+    
+    
+    
 ## SHUTDOWN
 
 print('SHUTDOWN')
@@ -919,3 +911,4 @@ monitor.stop()
 prog_end = True
 
 print('END')
+log.info('EXIT')
