@@ -131,6 +131,13 @@ class Motors:
                     found_all_axes = False
             if not found_all_axes:
                 log.err("unexpected servo configuration found, continuing anyway")
+        try:
+            from python_st3215 import Servo
+            self._servos[10] = Servo(controller=self.controller,servo_id=10)
+        except Exception as e:
+            print(e)
+            pass
+        print(self._servos)
     def __enter__ (self):
         return self
     def __exit__ (self, exc_type, exc_value, traceback):
@@ -172,20 +179,24 @@ log.info(f"using {st_device} as UART device")
 status = { 'LO': 0 }
 with Motors(device=st_device, axes_map=SERVO_AXIS_MAP) as motors:
 
-    motors.stop_all()
     for ax in motors.axes:
         ServoWheelMode(motors._servos[ax])
+        print("max torque",ax,motors._servos[ax].eeprom.read_max_torque())
+    motors.stop_all()
+    motor_moving = False
 
     ## PHASE 1: USER INTERACTION BEFORE LIFT OFF
     log.info("PHASE 1: INTERACTIVE MODE")
     while not status['LO']:
+        #for ax in motors.axes:
+        #    print("torque",ax,motors._servos[ax].sram.read_current_load())
+        print(motors.controller.broadcast.sram.sync_read_current_load(motors.servo_ids))
         ch = None
         ch = getkey()
         if ch is None:
             # motor_moving time out
             continue
         ch = ch.upper()
-        log.debug(f"keypress {ch}")
         match ch:
             case 'ESC':
                 stop = True
@@ -198,10 +209,17 @@ with Motors(device=st_device, axes_map=SERVO_AXIS_MAP) as motors:
                 vel = SERVOS[ax]['current_speed'] \
                         + direction * SERVOS[ax]['SPEED_INC']
                 print("setting speed",vel)
-                motors._servos[ax].sram.write_running_speed(vel)
+                res = motors._servos[ax].sram.write_running_speed(vel)
+                if res and not res['error']:
+                    SERVOS[ax]['current_speed'] = vel
+                if not (vel==0):
+                    # if we failed to set vel, err on the safe side here
+                    motor_moving = True
             case '0':
                 motors.stop_all()
-
+            case 'T':
+                if not motors._servos[10].sram.write_running_speed(200):
+                    log.error("motor not responding")
     # cleanup
     motors.stop_all()
     for ax in motors.axes:
