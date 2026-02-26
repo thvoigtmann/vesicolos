@@ -55,7 +55,7 @@ MOTOR_DZ_STEPS = 50            # number of steps, scan depth = steps*stepsize
 MOTOR_DZ_WAIT = 0.1            # in seconds, wait time at each step
 # if we loose internet connection we don't want the motors to move
 # indefinitely, so there is a timeout in interactive mode
-MOTOR_TIMEOUT = 3              # seconds until motor stop in unattended UI mode
+MOTOR_TIMEOUT = 30              # seconds until motor stop in unattended UI mode
 
 # servo configuration for the three axes
 # values with lower-case names will be modified by the program
@@ -201,7 +201,7 @@ class Logger():
         print(msg)
     def err (self, msg):
         self.logfile.write("*** ERR *** "+self.tstamp()+" "+msg+'\n')
-        self.lofgile.flush()
+        self.logfile.flush()
         print("*** ERR ***",msg)
 
 ## motor driver and motor handling stuff
