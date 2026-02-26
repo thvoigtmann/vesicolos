@@ -33,7 +33,7 @@ hardware setup:
 
 - Temperature sensor on SPI, 2-wire setup using Adafruit MAX31865 board.
 - LED and Heater on PWM channels.
-- Servo motors [](https://www.waveshare.com/wiki/ST3020_Servo)
+- Servo motors [Waveshare ST3020](https://www.waveshare.com/wiki/ST3020_Servo)
   controlled by a Waveshare driver.
   - Stage movement (X/Y): 2.3mm per turn of 4096 steps
   - Focus movement (Z): 0.1mm per turn of 4096 steps
