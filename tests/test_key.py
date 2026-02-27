@@ -1,6 +1,6 @@
 import sys
 sys.path.append('.')
-from getkey import getkey, Keys
+from vesicolos_utils import getkey, Keys
 
 while True:
     ch = None
