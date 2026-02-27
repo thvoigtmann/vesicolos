@@ -1,19 +1,19 @@
 import sys
 sys.path.append('.')
-import getkey
+from getkey import getkey, Keys
 
 while True:
     ch = None
     while ch is None:
         print("press key")
-        ch = getkey.getkey()
+        ch = getkey()
     try:
-        chmap = next(k.name for k in reversed(getkey.Keys) if k==ch)
+        chmap = next(k.name for k in reversed(Keys) if k==ch)
     except:
         chmap = chr(ch)
 
     print("CH",ch,chmap)
-    if ch == getkey.Keys.ESC:
+    if ch == Keys.ESC:
        break
 
     #ch = ch.upper()

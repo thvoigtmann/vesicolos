@@ -11,8 +11,6 @@ from enum import IntEnum
 # for documentation, see https://invisible-island.net/xterm/ctlseqs/ctlseqs.txt
 # since the first byte is always Esc, we can omit that in our mapping
 # common start sequences are CSI = Esc-[ and SS3 = Esc-O
-# we encode not all bytes, only enough to make the numbers unique for
-# a typical PC keyboard
 class Keys(IntEnum):
     TAB = 9
     RETURN = 10
