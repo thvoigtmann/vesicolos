@@ -29,6 +29,10 @@ import vesicolos_utils.motors as vm
 # these defaults are adapted to the MAPHEUS-16 flight and the
 # MOSAIC timeline of that flight as plausible defaults
 # the values can be overridden by a json configuration file
+# TODO FIXME later on read a json with those values!
+# read from flight_configuration.json ?
+# or maybe implement cmdline handling, allow to call code like
+# `python3 vesicolos.py HCD` or `python3 vesicolos.py TCD` or ... testing
 SOE_TIMEOUT_DEFAULT = 67       # timeout to start if no mug signal comes
 EXP_TIMEOUT_DEFAULT = 400      # timeout for duration of experiment
 MUG_STICKY = True              # if true, keep mug status ON once set
