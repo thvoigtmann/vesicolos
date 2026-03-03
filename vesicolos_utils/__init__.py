@@ -14,3 +14,16 @@ def kill_proc_by_name(name, log):
             log.error(f"No such process: {proc.pid}")
         except psutil.AccessDenied:
             log.error(f"Access denied to {proc.pid}")
+
+class DummyGPIO(object):
+    """A drop-in replacement for gpiozero LED and PWMOutputDevice
+    objects that we can use to do nothing when the GPIO init fails."""
+    def __init__(self,log,name):
+        self.name = name
+        self.log = log
+    def on(self):
+        self.log.warn(f"{self.name} on = noop (GPIO init error)")
+    def off(self):
+        self.log.warn(f"{self.name} off = noop (GPIO init error)")
+    def close(self):
+        pass

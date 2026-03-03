@@ -91,10 +91,8 @@ RTD_WIRES = 2                  # temp sensor is attached in 2-wire setup
 # motor settings
 ST_DEVICE = { '_default_': '/dev/ttyS0', # UART device (Raspberry 4)
               '5': '/dev/ttyAMA0' }      # UART device (Raspberry 5)
-ST_STEPS = 4096                # steps per full turn in the servo
-ST_MAX_WRAPS = 7               # how many turns the servo can resolve
-ST_MIDDLE = 2048               # middle position set by zeroing the servo
-ST_MAX_ID = 10                 # maximum servo ID to scan for
+ST_MAX_ID = 10                 # maximum servo ID to scan for (curr. not used)
+# some servo configuration parameters are now part of Motors class
 # servo configuration for the three axes
 # values with lower-case names will be modified by the program
 # the IDs are hard-coded in the motors
@@ -279,7 +277,11 @@ recordings = []
 motor_timeout = MOTOR_TIMEOUT
 
 # USER-INTERFACE FUNCTIONS
-def user_movement(motors,key):
+# TODO wrap these into a class, and the class gets initialized once
+# with variables for motors, monitor, camera
+# and the functions just get (self,key) as signature
+# can then put this into a separate file
+def user_movement(motors,monitor,key):
     """move x / y / z-position"""
     ax = SERVO_CMDS[key]['axis']
     direction = SERVO_CMDS[key]['dir']
@@ -291,44 +293,54 @@ def user_movement(motors,key):
     if not (vel==0):
         # if we tried to set vel=0 but failed, this will keep motor_moving=True
         motor_moving = True
-def user_stop_all(motors,key):
+        rvel = motors._servos[ax].sram.read_current_speed()
+        log.debug(f"{ax} set_vel = {vel}, read_vel = {rvel}")
+def user_stop_all(motors,monitor,key):
     """stop all motors"""
-    motors.stop_all()
-# TODO the following are FIXME
-def user_store_position(motors,key):
+    res = motors.stop_all()
+    if res:
+        for ax in motors.axes:
+            SERVOS[ax]['current_speed'] = 0
+        log.debug("motors stop")
+def user_store_position(motors,monitor,key):
     """store position"""
-    stop_all_servos()
-    if ch == 'H': # this is for the moment not used
+    motors.stop_all()
+    if key == ord('H'):
         poskey = 'homepos'
         reset_wrap = True
     else:
-        poskey = 'savepos'+ch[1]
+        poskey = int(key-Keys.F1+1)
+        if poskey > 4:
+            poskey = int(key-Keys.F5+5)
+        poskey = 'savepos'+str(poskey)
         reset_wrap = False
     success = monitor.update_pos()
     if success:
         POSITIONS[poskey] = {}
-        for ax in axes:
+        for ax in motors.axes:
             if reset_wrap:
                 monitor.wrap[ax] = 0
             POSITIONS[poskey][ax] = (monitor.pos[ax],monitor.wrap[ax])
         print ('saved',poskey,monitor.pos,monitor.wrap)
         last_savepos = poskey
-def user_recall_position(motors,key):
+# TODO the following are FIXME
+def user_recall_position(motors,monitor,key):
     """recall stored position"""
-    if ch == 'R': # this is for the moment not used
+    if key == ord('h'):
         poskey = 'homepos'
     else:
-        poskey = 'savepos'+ch
+        poskey = 'savepos'+int(ch-ord('0'))
     if not (poskey in POSITIONS):
         print ('no position',poskey,'saved')
     else:
-        stop_all_servos()
+        motors.stop_all()
         time.sleep(0.2)
         monitor.stop()
-        move_to_stored_position(poskey)
+        #TODO FIXME
+        #motors.move_to_stored_position(poskey)
         monitor.start()
         last_savepos = poskey
-def user_goto_position(motors,key):
+def user_goto_position(motors,monitor,key):
     """goto a specific position (servo mode)"""
     stop_all_servos()
     ax = input('axis? ').upper()
@@ -346,30 +358,32 @@ def user_goto_position(motors,key):
     motorDriver.GotoPos(SERVOS[ax]['ID'], pos)
     time.sleep(0.2)
     motorDriver.WheelMode(SERVOS[ax]['ID'], True)
-def user_query_position(motors,key):
+def user_query_position(motors,monitor,key):
     """query motor positions"""
-    stop_all_servos()
+    motors.stop_all()
+    axes = motors.axes
     wheelpos = { _: 0 for _ in axes }
     servopos = { _: 0 for _ in axes }
     for ax in axes:
-        scs_id = SERVOS[ax]['ID']
-        wheelpos[ax], comm, err = motorDriver.ReadPos(scs_id)
+        servo = motors._servos[ax]
+        wheelpos[ax] = servo.sram.read_current_location()
         time.sleep(0.2)
-        motorDriver.WheelMode(scs_id, False)
-        servopos[ax], comm, err = motorDriver.ReadPos(scs_id)
+        servo.eeprom.write_operating_mode(0)
         time.sleep(0.2)
-        motorDriver.WheelMode(scs_id, True)
+        servopos[ax] = servo.sram.read_current_location()
+        time.sleep(0.2)
+        servo.eeprom.write_operating_mode(1)
     print ("current position (wheel)",wheelpos)
     print ("current position (servo)",servopos)
-def user_toggle_led(motors,key):
+def user_toggle_led(motors,monitor,key):
     """toggle LED"""
     led.toggle()
     log.info('LED {}'.format(['OFF','ON'][led.is_active]))
-def user_toggle_heater(motors,key):
+def user_toggle_heater(motors,monitor,key):
     """toggle heater"""
     heater.toggle()
     log.info(f"HEATER PWM active {heater.is_active} value {heater.value}")
-def user_enter_temperature_ramp(motors,key):
+def user_enter_temperature_ramp(motors,monitor,key):
     """enter temperature parameters"""
     tkey = last_savepos or 'default'
     print ("enter temperature ramp parameters for",tkey,\
@@ -392,12 +406,12 @@ def user_enter_temperature_ramp(motors,key):
                                'dt': dt, 'ts': ts, 'tmax': tmax }
     except ValueError:
         print("illegal input, ignoring")
-def user_littoff(motors,key):
+def user_liftoff(motors,monitor,key):
     """manual lift off"""
     log.info("MANUAL LIFT OFF")
     manual_lift_off = True
     status['LO'] = True
-def user_camera(motors,key):
+def user_camera(motors,monitor,key):
     """user camera recording"""
     if camera is not None:
         camera.stop()
@@ -416,7 +430,7 @@ def user_camera(motors,key):
         except RuntimeError as e:
             camera = None
             print("ERROR starting camera",str(e))
-def user_help(motors,key):
+def user_help(motors,monitor,key):
     """help"""
     global user_actions
     for ch in user_actions:
@@ -433,19 +447,32 @@ def user_help(motors,key):
 
 
 user_actions = {
+    ord('0'): user_stop_all,
     Keys.UP: user_movement,
     Keys.DOWN: user_movement,
     Keys.LEFT: user_movement,
     Keys.RIGHT: user_movement,
     Keys.PGUP: user_movement,
     Keys.PGDOWN: user_movement,
-    ord('0'): user_stop_all,
+    Keys.F1: user_store_position,
+    Keys.F2: user_store_position,
+    Keys.F3: user_store_position,
+    Keys.F4: user_store_position,
+    Keys.F5: user_store_position,
+    # ord('H'): user_store_position,
+    ord('1'): user_recall_position,
+    ord('2'): user_recall_position,
+    ord('3'): user_recall_position,
+    ord('4'): user_recall_position,
+    ord('5'): user_recall_position,
+    # ord('h'): user_recall_position,
+    ord('q'): user_query_position,
     ord('?'): user_help
 }
 
 with vm.Motors(device=st_device, log=log, axes_map=SERVO_AXIS_MAP) as motors:
     # TODO FIXME
-    #monitor = vm.ServoMonitor(motors,increment=MONITOR_INTERVAL)
+    monitor = vm.ServoMonitor(motors,increment=MONITOR_INTERVAL)
 
     for ax in motors.axes:
         vm.ServoWheelMode(motors._servos[ax])
@@ -478,9 +505,9 @@ with vm.Motors(device=st_device, log=log, axes_map=SERVO_AXIS_MAP) as motors:
             log.info("user exit (esc)")
             break
         if ch in user_actions:
-            user_actions[ch](motors,ch)
+            user_actions[ch](motors,monitor,ch)
         else:
-            user_help(motors,key)
+            user_help(motors,monitor,ch)
 
     # cleanup
     motors.stop_all()
