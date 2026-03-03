@@ -1,3 +1,7 @@
+from python_st3215 import ST3215
+import logging
+import time
+
 class Motors:
     mode_names = { 0: "position", 1: "wheel", 2: "PWM", 3: "stepper" }
     def __init__ (self, device, log, axes_map={}):
@@ -47,6 +51,7 @@ class Motors:
     def __exit__ (self, exc_type, exc_value, traceback):
         self.log.debug("stopping all motors")
         self.stop_all()
+        self.wheel_mode()
         self.log.debug("closing motor controller")
         self.controller.close()
     def stop_all (self):
@@ -55,6 +60,15 @@ class Motors:
                 {servo.id: 0 for servo in self._servos.values()}
         )
         # update current_speed variables?
+    def wheel_mode (self, axis=-1):
+        """Set motor specified by `axis` to whell mode.
+        If `axis==-1` (default), apply to all axes."""
+        if axis<0:
+            for ax in self.axes:
+                self._servos[ax].eeprom.write_operating_mode(1)
+        elif axis in self.axes:
+            self._servos[axis].eeprom.write_operating_mode(1)
+
 
 # the stuff that follows here would be ideally in the Servo API?
 def ServoWheelMode (servo):
@@ -66,13 +80,14 @@ def ServoWheelMode (servo):
 # monitor for servo positions
 # we also output signal status here for convenience
 class ServoMonitor():
-    def __init__ (self, increment, silent=False):
+    def __init__ (self, motors, increment, silent=False):
         self.next_t = time.time()
         self.silent = silent
         self.done = False
+        self.motors = motors
         self.increment = increment
-        self.pos = { _:0 for _ in axes }
-        self.wrap = { _:0 for _ in axes }
+        self.pos = { _:0 for _ in motors.axes }
+        self.wrap = { _:0 for _ in motors.axes }
         self._run()
     def _run (self):
         if not self.done:
@@ -85,12 +100,12 @@ class ServoMonitor():
     # update: query the motor positions, try to detect wrap-arounds
     def update_pos (self,detect_wrap=True):
         success = True
-        newpos = { _:0 for _ in axes }
-        for ax in axes:
+        newpos = { _:0 for _ in self.motors.axes }
+        for ax in self.motors.axes:
             newpos[ax], comm, err = motorDriver.ReadPos(SERVOS[ax]['ID'])
             success &= motorDriver.success(comm, err)
         if success and detect_wrap:
-            for ax in axes:
+            for ax in self.motors.axes:
                 vel = SERVOS[ax]['current_speed']
                 if vel>0 and self.pos[ax] > ST_STEPS/2 and newpos[ax] < self.pos[ax]:
                     self.wrap[ax] += 1
