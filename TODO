@@ -4,7 +4,18 @@ hardware
 - check raspberry 5 for vibration resilience
 - add m.2 ssd for fast video writing
 
-software
+new motor driver software
+- read_current_speed does not properly return negative values!?
+  - possible also the write_ method has the same problem?
+  - check github.com/Mickael-Roger/python-st3215 is different code?
+- operating_mode calls should be part of driver?
+  - in general, why does the servo class not wrap the sram/eeprom calls?
+- all SERVOS[ax]['current_speed'] should probably be discarded?
+- torque limiting not yet coded
+- ST_MAX_ID not used: should patch servo driver code
+- make a requirements.txt with pip-chill
+
+software (ideas from last flight)
 - with threads, should use thread.join() (why, to wait at end?)
 - switch UI mode to pynput, test on raspian
 - test UI also over high-latency link (vnc etc)
