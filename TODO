@@ -1,0 +1,32 @@
+hardware
+- sensor to code home position and absolute positions of stage
+- stoppers at end to not make stage fall off
+- check raspberry 5 for vibration resilience
+- add m.2 ssd for fast video writing
+
+software
+- with threads, should use thread.join() (why, to wait at end?)
+- switch UI mode to pynput, test on raspian
+- test UI also over high-latency link (vnc etc)
+- how to drive motors, can we avoid wheel mode as much as possible?
+  - to test, can the goto be interrupted while the motor is driving?
+  - if so, could use a large delta to drive and then stop at any time
+  - see below of idea of MotorHandler
+- torque detection for motors, code recognition of home position
+  - probably need to pull this out of the C driver, look in packages
+  - check https://github.com/alessiodam/python-st3215/tree/main/examples
+    this is not in ../vesicolos-tst, probably the way to go
+  - switch to sync_read to query all positions
+- set frame rate for recording, check different modes
+- allow to set gain, etc via software
+- build a small UI?
+- AI recognition of sharp images?
+
+
+class MotorHandler:
+- method to goto specified position
+  - call API for goto
+  - enter waiting loop to query ismoving, but also some interrupt flag
+  - is this loop where we also query for the torque and abort on limit?
+  - the method should recall what it set as aim and query if that target changed
+
