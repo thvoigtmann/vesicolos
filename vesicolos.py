@@ -363,17 +363,20 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         with CLI(motor_controller=motor_controller,monitor=monitor,led=led,heater=heater,camera=camera,keymap=keymap,movement_map=SERVO_CMDS) as cli:
             threading.Thread(target=cli.start,args=[stop_event]).start()
     
-            while not status['LO']:
-                # TODO FIXME
-                # monitoring of stuff goes here while the UI is running
-                #for ax in motors.axes:
-                #    print("torque",ax,motors._servos[ax].sram.read_current_load())
-                #print(motors.controller.broadcast.sram.sync_read_current_load(motors.servo_ids))
-                if stop_event.is_set():
-                    # stop_event will be set by UI if the user exits
-                    # or by the wait_for_lo if that enconuters a timeout
-                    # (which is currently not implemented)
-                    break
+            try:
+                while not status['LO']:
+                    # TODO FIXME
+                    # monitoring of stuff goes here while the UI is running
+                    #for ax in motors.axes:
+                    #    print("torque",ax,motors._servos[ax].sram.read_current_load())
+                    #print(motors.controller.broadcast.sram.sync_read_current_load(motors.servo_ids))
+                    if stop_event.is_set():
+                        # stop_event will be set by UI if the user exits
+                        # or by the wait_for_lo if that enconuters a timeout
+                        # (which is currently not implemented)
+                        break
+            except KeyboardInterrupt:
+                cli.stop = True
             # the UI and the wait_for_lo thread will listen to this:
             stop_event.set()
 

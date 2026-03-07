@@ -16,7 +16,6 @@ class CLI:
         self.heater = heater
         self.camera = camera
         self.keymap = keymap
-        #self.motor_moving = False # FIXME
         if movement_map:
             for k,m in movement_map.items():
                 self.keymap[k] = (CLI.movement, m['axis'], m['dir'])
@@ -29,11 +28,14 @@ class CLI:
             (self.led,"LED",CLI.toggle_led),
             (self.heater,"heater",CLI.toggle_heater)
             ]:
-            if feature is None:
+            if feature is None or not feature:
                 self.log.warn(f"feature {featname} not configured")
-                for k,m in self.keymap:
+                for k,m in self.keymap.items():
                     if m[0] in dependency:
                         self.keymap[k] = (CLI.notimpl,)
+        #self.motor_moving = False # FIXME
+        self.stop = False
+        self.stored_positions = {}
     def __enter__ (self):
         return self
     def __exit__ (self, exc_type, exc_value, traceback):
@@ -42,6 +44,7 @@ class CLI:
         """Start the UI loop, processing key strokes and performing the
         relevant actions. Interrupted if `stop_event.is_set()` from the
         main thread."""
+        self.stop = False
         self.stop_event = stop_event
         while not stop_event.is_set():
             ch = getkey()
@@ -61,7 +64,7 @@ class CLI:
                 continue
             if ch in self.keymap:
                 func, *args = (*self.keymap[ch],)
-                func(*args)
+                func(self,*args)
             else:
                 self.user_help()
     def notimpl(self):
@@ -73,12 +76,17 @@ class CLI:
                 chmap = next(k.name for k in reversed(Keys) if k==ch)
             else:
                 chmap = chr(ch)
-            print("{k:8.8s} - {doc}".format(k=chmap,doc=self.keymap[ch].__doc__))
+            func, *args = (*self.keymap[ch],)
+            if args:
+                args = ' '+' '.join([str(_) for _ in args])
+            else:
+                args = ''
+            print("{k:8.8s} - {doc}{args}".format(k=chmap,doc=self.keymap[ch][0].__doc__,args=args))
         print("___")
         for i in range(1,5):
             poskey = 'savepos'+str(i)
-            if poskey in POSITIONS:
-                print (' ',poskey,POSITIONS[poskey])
+            if poskey in self.stored_positions:
+                print (' ',poskey,self.stored_positions[poskey])
 
     def movement (self, ax, direction):
         """move x / y / z-position"""
@@ -91,6 +99,7 @@ class CLI:
             rvel = self.motors[ax].sram.read_current_speed()
             self.log.debug(f"{ax} set_vel = {vel}, read_vel = {rvel}")
     def stop_all (self):
+        """stop all motors"""
         res = self.motor_controller.stop_all()
         if res:
             log.debug("motors stop")
