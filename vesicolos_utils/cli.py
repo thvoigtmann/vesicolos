@@ -1,57 +1,69 @@
+import logging
+from vesicolos_utils import getkey, Keys
+
 # TODO: CLI stores the positions, should invoke a thread
 # to continuously save them, and then provide a way to return them
 # in principle, a GUI could derive from this,
 class CLI:
-    def __init__ (self, motors=None, monitor=None, led=None, heater=None, camera=None, keymap={}, movement_map={}):
-        self.motors = motors
+    def __init__ (self, motor_controller=None, monitor=None, led=None, heater=None, camera=None, keymap={}, movement_map={}):
+        self.motor_controller = motor_controller
+        if motor_controller is not None:
+            self.motors = motor_controller._servos
+        else:
+            self.motors = None
         self.monitor = monitor
         self.led = led
         self.heater = heater
         self.camera = camera
         self.keymap = keymap
-        self.motor_moving = False
+        #self.motor_moving = False # FIXME
         if movement_map:
             for k,m in movement_map.items():
-                self.keymap[k] = (CLI.movement, m['axis'], m['direction'])
+                self.keymap[k] = (CLI.movement, m['axis'], m['dir'])
         self.log = logging.getLogger("VESICOLOS UI")
         # TODO FIXME
         # provide factory methods to make loggers with common formatting
         # sanity check
         for feature, featname, dependency in [
-            (motors,"motors",[CLI.movement,CLI.stop_all,CLI.store_position,CLI.recall_position]),
-            (led,"LED",CLI.toggle_led),
-            (heater,"heater",CLI.toggle_heater)
+            (self.motors,"motors",[CLI.movement,CLI.stop_all,CLI.store_position,CLI.recall_position]),
+            (self.led,"LED",CLI.toggle_led),
+            (self.heater,"heater",CLI.toggle_heater)
             ]:
             if feature is None:
                 self.log.warn(f"feature {featname} not configured")
                 for k,m in self.keymap:
                     if m[0] in dependency:
                         self.keymap[k] = (CLI.notimpl,)
+    def __enter__ (self):
+        return self
+    def __exit__ (self, exc_type, exc_value, traceback):
+        pass
     def start (self, stop_event):
         """Start the UI loop, processing key strokes and performing the
         relevant actions. Interrupted if `stop_event.is_set()` from the
         main thread."""
         self.stop_event = stop_event
-        ch = getkey()
-        if ch is None:
-            # TODO FIXME implement motor-moving timeout here?
-            if motor_moving and motor_timeout > 0:
-                motor_timeout -= 1
-                if motor_timeout <= 0:
-                    if motors and motors.stop_all():
-                        motor_timeout = MOTOR_TIMEOUT
-            continue
-        if ch == Keys.ESC:
-            self.stop = True
-            print("GOOD-BYE")
-            log.info("user exit (esc)")
-            stop_event.set()
-            continue
-        if ch in self.keymap:
-            func, *args = (*self.keymap[ch],)
-            func(*args)
-        else:
-            self.user_help()
+        while not stop_event.is_set():
+            ch = getkey()
+            if ch is None:
+                # TODO FIXME implement motor-moving timeout here?
+                #if motor_moving and motor_timeout > 0:
+                #    motor_timeout -= 1
+                #    if motor_timeout <= 0:
+                #        if self.motors and self.motor_controller.stop_all():
+                #            motor_timeout = MOTOR_TIMEOUT
+                continue
+            if ch == Keys.ESC:
+                self.stop = True
+                print("GOOD-BYE")
+                self.log.info("user exit (esc)")
+                stop_event.set()
+                continue
+            if ch in self.keymap:
+                func, *args = (*self.keymap[ch],)
+                func(*args)
+            else:
+                self.user_help()
     def notimpl(self):
         print ("NOT IMPLEMENTED / CONFIGURED")
     def user_help(self):
@@ -70,21 +82,21 @@ class CLI:
 
     def movement (self, ax, direction):
         """move x / y / z-position"""
-        vel = self.motors.current_set_speed.get(ax,0) \
-            + direction * self.motors.motorconf.get(ax,{}).get('SPEED_INC',0)
-        res = self.motors._servos[ax].sram.write_running_speed(vel)
+        vel = self.motor_controller.current_set_speed.get(ax,0) \
+            + direction * self.motor_controller.motorconf.get(ax,{}).get('SPEED_INC',0)
+        res = self.motors[ax].sram.write_running_speed(vel)
         if not (vel==0):
             # if we tried to set vel=0 but failed, this will keep motor_moving=True
             self.motor_moving = True
-            rvel = self.motors._servos[ax].sram.read_current_speed()
+            rvel = self.motors[ax].sram.read_current_speed()
             self.log.debug(f"{ax} set_vel = {vel}, read_vel = {rvel}")
     def stop_all (self):
-        res = self.motors.stop_all()
+        res = self.motor_controller.stop_all()
         if res:
             log.debug("motors stop")
     def store_position (self, num):
         """store position"""
-        self.motors.stop_all()
+        self.motor_controller.stop_all()
         if num == 0:
             poskey = 'homepos'
             reset_wrap = True

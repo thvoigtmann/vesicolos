@@ -7,20 +7,28 @@ import threading
 import ansi
 
 
-class Motors:
+class MotorController:
     ST_STEPS = 4096
     ST_MAX_WRAPS = 7
     ST_MIDDLE = 2048
     mode_names = { 0: "position", 1: "wheel", 2: "PWM", 3: "stepper" }
     def __init__ (self, device, log, axes_map={}, motorconf={}):
-        self.controller = ST3215(device)
         self.log = log
+        self.current_set_speed = {}
+        try:
+            self.scan()
+        except Exception as e:
+            log.error("motor init failed: "+str(e))
+            self.controller = None
+            self.axes = []
+            self._servos = {}
+    def scan (self):
+        self.controller = ST3215(device)
         self.log.info("Scanning for servos.")
         old_level = self.controller.logger.level
         self.controller.logger.setLevel(logging.ERROR)
         self.axes = []
         self._servos = {}
-        self.current_set_speed = {}
         self.servo_ids = self.controller.list_servos()
         if not self.servo_ids:
             self.log.error("no servos found")
@@ -66,10 +74,12 @@ class Motors:
         self.log.debug("stopping all motors")
         self.stop_all()
         self.wheel_mode()
-        self.log.debug("closing motor controller")
-        self.controller.close()
+        if self.controller:
+            self.log.debug("closing motor controller")
+            self.controller.close()
     def stop_all (self):
         """Stop all servos"""
+        if not self.controller: return False
         success = True
         self.controller.broadcast.sram.sync_write_running_speed(
                 {servo.id: 0 for servo in self._servos.values()}
@@ -126,7 +136,8 @@ class ServoMonitor():
             if not self.silent:
                 if success: es=''
                 else: es='EE'
-                print(ansi.cursor.save_cursor()+ansi.cursor.goto(10,10)+es+" -- position",self.pos,self.wrap,self.vel,"--",ansi.cursor.load_cursor(0),end='')
+                #print(ansi.cursor.save_cursor()+ansi.cursor.goto(10,10)+es+" -- position",self.pos,self.wrap,self.vel,"--",ansi.cursor.load_cursor(0),end='')
+                print(" -- position",self.pos,self.wrap,self.vel,"--")
                 # TODO FIXME
                 #log.info(str(status)+" T="+str(temp_sensor.temperature))
             self.next_t += self.increment
@@ -162,6 +173,7 @@ class ServoMonitor():
         return success
     def stop (self):
         self.done = True
+        print("servo monitor stopped")
     def start (self, silent=False):
         self.next_t = time.time()
         self.silent = silent

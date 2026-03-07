@@ -4,12 +4,21 @@ import threading, signal
 import json
 import logging, errno
 
-import RPi.GPIO as GPIO
+try:
+    import RPi.GPIO as GPIO
+except Exception as e:
+    if os.environ.get("NO_GPIO"):
+        import Mock.GPIO as GPIO
+    else:
+        raise e
 import gpiozero                            # used for PWM (LED and heater)
 import board, digitalio, adafruit_max31865 # used for temperature sensor
 GPIO.setmode(GPIO.BCM)
 
-import picamera2
+try:
+    import picamera2
+except:
+    print("picamera2 not available, continuing without camera")
 
 # local repositories
 sys.path.append('python-st3215/src')
@@ -17,7 +26,7 @@ sys.path.append('.')
 from python_st3215 import ST3215
 from vesicolos_utils import getkey,Keys,kill_proc_by_name,DummyGPIO
 import vesicolos_utils.motors as vm
-import vesicolos_utils.cli
+from vesicolos_utils.cli import CLI
 
 
 ## GLOBAL SETTINGS
@@ -79,7 +88,11 @@ SERVO_CMDS = {
 STATUS_PINS = { 'LO': 17, 'mug': 27 } # GPIO pins used for signals
 GPIO_LED = 13                  # GPIO pin used for LED (PWM)
 GPIO_HEATER = 12               # GPIO pin used for heater (PWM)
-GPIO_TEMP = board.D5           # cable select for temp sensor (SPI) on GPIO 5
+# TODO FIXME do we really need to use board.D5 or can we put num value?
+try:
+    GPIO_TEMP = board.D5           # cable select for temp sensor (SPI) on GPIO 5
+except:
+    GPIO_TEMP = 5
 # SPI bus pin layout
 # these are the defaults, values here are not used in the code below for now:
 #GPIO_MISO = 9                 # MISO signal for SPI bus
@@ -207,10 +220,16 @@ except Exception as e:
 
 
 # temperature sensor, SPI on a MAX31865 board, taken care of by adafruit module
-spi = board.SPI()
-cs = digitalio.DigitalInOut(GPIO_TEMP)
-temp_sensor = adafruit_max31865.MAX31865(spi, cs, \
-    rtd_nominal=RTD_NOMINAL, ref_resistor=RTD_REFERENCE, wires=RTD_WIRES)
+try:
+    spi = board.SPI()
+    cs = digitalio.DigitalInOut(GPIO_TEMP)
+    temp_sensor = adafruit_max31865.MAX31865(spi, cs, \
+        rtd_nominal=RTD_NOMINAL, ref_resistor=RTD_REFERENCE, wires=RTD_WIRES)
+except Exception as e:
+    log.error('TEMPSENSOR init failed: '+str(e))
+    log.error('no temperature sensor available')
+    temp_sensor = None
+
 
 # TODO: FIX THIS
 #temperature_log = Logger(temperature_logfile)
@@ -279,7 +298,8 @@ def save_restart ():
 
         time.sleep(10)
         os.sync()
-threading.Thread(target=save_restart).start()
+# TODO FIXME
+#threading.Thread(target=save_restart).start()
 
 
 
@@ -317,20 +337,19 @@ keymap = {
     ord('l'): (CLI.toggle_led,),
     ord('h'): (CLI.toggle_heater,),
     ord('t'): (CLI.enter_temperature_ramp,),
-    ord('x'): (CLI.lifoff,),
+    ord('x'): (CLI.liftoff,),
     ord('c'): (CLI.camera,),
     ord('?'): (CLI.user_help,)
 }
 
-
-with vm.Motors(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, motorconf=SERVOS) as motors:
+with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, motorconf=SERVOS) as motor_controller:
     # TODO FIXME
-    monitor = vm.ServoMonitor(motors,increment=MONITOR_INTERVAL)
+    monitor = vm.ServoMonitor(motor_controller,increment=MONITOR_INTERVAL)
 
-    for ax in motors.axes:
-        vm.ServoWheelMode(motors._servos[ax])
-        print("max torque",ax,motors._servos[ax].eeprom.read_max_torque())
-    motors.stop_all()
+    for ax in motor_controller.axes:
+        vm.ServoWheelMode(motor_controller._servos[ax])
+        print("max torque",ax,motor_controller._servos[ax].eeprom.read_max_torque())
+    motor_controller.stop_all()
     motor_moving = False
 
     ## PHASE 1: USER INTERACTION BEFORE LIFT OFF
@@ -341,7 +360,7 @@ with vm.Motors(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, motorconf=SER
         log.info("PHASE 1: INTERACTIVE MODE - WAITING FOR LIFT OFF")
         stop_event = threading.Event()
         threading.Thread(target=wait_for_lo,args=[stop_event]).start()
-        with vesicolos_utils.cli.CLI(motors,moitor,led,heater,camera,keymap,arrowmap) as cli:
+        with CLI(motor_controller=motor_controller,monitor=monitor,led=led,heater=heater,camera=camera,keymap=keymap,movement_map=SERVO_CMDS) as cli:
             threading.Thread(target=cli.start,args=[stop_event]).start()
     
             while not status['LO']:
@@ -369,8 +388,8 @@ with vm.Motors(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, motorconf=SER
                 status['LO'] = True
 
         # cleanup, only needed if we didn't have LO right away
-        motors.stop_all()
-        motors.wheel_mode()
+        motor_controller.stop_all()
+        motor_controller.wheel_mode()
 
     #  SECOND PHASE
     # TODO:FIXME from here
@@ -378,7 +397,7 @@ with vm.Motors(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, motorconf=SER
     # we have a lift-off, so remote control is off now
     
     if not stop:
-        motors.stop_all()
+        motor_controller.stop_all()
         if not manual_lift_off:
             # this is a real lift off, we wait for mug now
             t0 = time.time()
