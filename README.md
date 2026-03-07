@@ -99,7 +99,24 @@ should be
 ```bash
 adafruit-circuitpython-max31865 gpiozero lgpio rpi-lgpio pyserial
 ```
+(TODO: check whether `lgpio` is still used)
 
 The file in `autostart` needs to be copied into `~/.config/autostart/`.
 This should make the vesicolos python program automatically start once
 the LXDE desktop is up.
+
+# Code Options
+
+The `vesciolos.py` uses a number of hard-coded defaults that can be
+found in the top part of the source code - those are mostly pin numbers
+and things related to the hardware.
+
+The code respects the following environment variables:
+
+| env variable   | function                 | Remark                   |
+|----------------|--------------------------|--------------------------|
+| `RASPI_MODEL`  | model version (4 or 5)   | switches UART device     |
+| `ST_DEVICE`    | UART device name         | overrides auto-detect    |
+| `DEBUG`        | debugging on             | increases log verbosity  |
+| `NO_GPIO`      | don't import GPIO lib    | for testing on non-RPi   |
+
