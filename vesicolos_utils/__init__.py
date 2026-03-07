@@ -21,11 +21,12 @@ class DummyGPIO(object):
     def __init__(self,log,name):
         self.name = name
         self.log = log
+        self.is_active = False
     def on(self):
         self.log.warn(f"{self.name} on = noop (GPIO init error)")
     def off(self):
         self.log.warn(f"{self.name} off = noop (GPIO init error)")
-    def is_active(self):
-        self.log.warn(f"{self.name} is_active? = noop (GPIO init error)")
+    def toggle(self):
+        self.log.warn(f"{self.name} toggle = noop (GPIO init error)")
     def close(self):
         pass

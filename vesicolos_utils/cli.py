@@ -32,7 +32,7 @@ class CLI:
                 self.log.warn(f"feature {featname} not configured")
                 for k,m in self.keymap.items():
                     if m[0] in dependency:
-                        self.keymap[k] = (CLI.notimpl,)
+                        self.keymap[k] = (CLI.notimpl,f"({featname} missing)")
         #self.motor_moving = False # FIXME
         self.stop = False
         self.stored_positions = {}
@@ -67,8 +67,9 @@ class CLI:
                 func(self,*args)
             else:
                 self.user_help()
-    def notimpl(self):
-        print ("NOT IMPLEMENTED / CONFIGURED")
+    def notimpl(self, errmsg):
+        """not implemented"""
+        print ("NOT IMPLEMENTED / CONFIGURED:",errmsg)
     def user_help(self):
         """help"""
         for ch in self.keymap:
@@ -177,11 +178,11 @@ class CLI:
     def toggle_led(self):
         """toggle LED"""
         self.led.toggle()
-        log.info('LED {}'.format(['OFF','ON'][self.led.is_active]))
+        self.log.info('LED {}'.format(['OFF','ON'][self.led.is_active]))
     def toggle_heater(self):
         """toggle heater"""
         self.heater.toggle()
-        log.info(f"HEATER PWM active {self.heater.is_active} value {self.heater.value}")
+        self.log.info(f"HEATER PWM active {self.heater.is_active} value {self.heater.value}")
     def enter_temperature_ramp(key):
         """enter temperature parameters"""
         tkey = last_savepos or 'default'
