@@ -17,6 +17,7 @@ sys.path.append('.')
 from python_st3215 import ST3215
 from vesicolos_utils import getkey,Keys,kill_proc_by_name,DummyGPIO
 import vesicolos_utils.motors as vm
+import vesicolos_utils.cli
 
 
 ## GLOBAL SETTINGS
@@ -54,18 +55,18 @@ MOTOR_TIMEOUT = 30              # seconds until motor stop in unattended UI mode
 # TODO also add a configurable torque limit, probably per axis (and direction?)
 # TODO cleanup
 SERVOS = {
-  'X': { 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
-  'Y': {  'DEFAULT_SPEED': 2400, 'SPEED_INC': 200, 'current_speed': 0 },
-  'Z': { 'DEFAULT_SPEED':  200, 'SPEED_INC':  40, 'MAX_WRAP': 1, 'current_speed': 0 },
+  'X': { 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200 },
+  'Y': { 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200 },
+  'Z': { 'DEFAULT_SPEED':  200, 'SPEED_INC':  40, 'MAX_WRAP': 1 }
 }
-SERVO_CMDS = { int(k):m for k,m in {
+SERVO_CMDS = {
     Keys.LEFT:   { 'axis': 'Y', 'dir': +1 },
     Keys.RIGHT:  { 'axis': 'Y', 'dir': -1 },
     Keys.DOWN:   { 'axis': 'X', 'dir': -1 },
     Keys.UP:     { 'axis': 'X', 'dir': +1 },
     Keys.PGUP:   { 'axis': 'Z', 'dir': -1 },
     Keys.PGDOWN: { 'axis': 'Z', 'dir': +1 }
-}.items() }
+}
 
 
 ## HARDWARE SETTINGS
@@ -180,6 +181,9 @@ motor_moving = False
 
 # global objects
 
+# TODO FIXME: for led and heater, reconsider setting to None on GPIO error
+# the UI should handle this gracefully
+# and the later code: could try to re-init if None
 
 # LED uses hardware PWM, taken care of by the gpiozero module
 try:
@@ -226,19 +230,30 @@ monitor = None
 # a separate thread checks the GPIO pin every second, writes status variable
 # the part of the main program that runs before LO waits for user input
 # and exits if the status variable changes
-def wait_for_lo ():
-    global status, manual_lift_off
-    global stop, log
-    t0 = time.time()
+# the stop_event can interrupt this waiting for LO,
+# it will typically be triggered by the user exiting the UI
+def wait_for_lo (stop_event):
+    global status, log
+    #t0 = time.time() # could implement LO timeout, but we don't need it
     while (not GPIO.input(STATUS_PINS['LO'])) \
-        and (not stop) and (not manual_lift_off):
+        and not stop_event.is_set():
         log.debug("waiting for lift off")
         time.sleep(1)
-    if not stop:
+    if not stop_event.is_set():
         status['LO'] = True
         log.info("*** LIFT OFF ***")
-threading.Thread(target=wait_for_lo).start()
 
+
+# TODO FIXME: save_restart should now be handled by the UI
+# read_restart: not sure yet where to put it
+# FIXME the save_restart should only write motors.wrap if the motors
+# are currently not moving!
+# if the program crashes while the motors are moving, we most likely
+# don't know where we are, the wrap might be wrong, and thus we should
+# not rely on being able to reuse the saved positions
+# if we manage to switch the whole user-movement stuff to servo mode
+# we could at least save target positions (where the motor would move
+# to if we were cut off?)
 # try re-reading saved parameters on restart
 # to catch power cycles
 # this is done here so that we can adjust our wraparound counter as well
@@ -276,201 +291,39 @@ camera = None
 recordings = []
 motor_timeout = MOTOR_TIMEOUT
 
+# TODO FIXME how to treat upper-case characters?
+# do we want to distinguish, or do we want to be failsafe against capslock?
+# (we probably are not anyway because of the F1... and 1... keys
+
 # USER-INTERFACE FUNCTIONS
-# TODO wrap these into a class, and the class gets initialized once
-# with variables for motors, monitor, camera
-# and the functions just get (self,key) as signature
-# can then put this into a separate file
-def user_movement(motors,monitor,key):
-    """move x / y / z-position"""
-    ax = SERVO_CMDS[key]['axis']
-    direction = SERVO_CMDS[key]['dir']
-    vel = SERVOS[ax]['current_speed'] \
-        + direction * SERVOS[ax]['SPEED_INC']
-    res = motors._servos[ax].sram.write_running_speed(vel)
-    if res and not res['error']:
-        SERVOS[ax]['current_speed'] = vel
-    if not (vel==0):
-        # if we tried to set vel=0 but failed, this will keep motor_moving=True
-        motor_moving = True
-        rvel = motors._servos[ax].sram.read_current_speed()
-        log.debug(f"{ax} set_vel = {vel}, read_vel = {rvel}")
-def user_stop_all(motors,monitor,key):
-    """stop all motors"""
-    res = motors.stop_all()
-    if res:
-        for ax in motors.axes:
-            SERVOS[ax]['current_speed'] = 0
-        log.debug("motors stop")
-def user_store_position(motors,monitor,key):
-    """store position"""
-    motors.stop_all()
-    if key == ord('H'):
-        poskey = 'homepos'
-        reset_wrap = True
-    else:
-        poskey = int(key-Keys.F1+1)
-        if poskey > 4:
-            poskey = int(key-Keys.F5+5)
-        poskey = 'savepos'+str(poskey)
-        reset_wrap = False
-    success = monitor.update_pos()
-    if success:
-        POSITIONS[poskey] = {}
-        for ax in motors.axes:
-            if reset_wrap:
-                monitor.wrap[ax] = 0
-            POSITIONS[poskey][ax] = (monitor.pos[ax],monitor.wrap[ax])
-        print ('saved',poskey,monitor.pos,monitor.wrap)
-        last_savepos = poskey
-# TODO the following are FIXME
-def user_recall_position(motors,monitor,key):
-    """recall stored position"""
-    if key == ord('h'):
-        poskey = 'homepos'
-    else:
-        poskey = 'savepos'+int(ch-ord('0'))
-    if not (poskey in POSITIONS):
-        print ('no position',poskey,'saved')
-    else:
-        motors.stop_all()
-        time.sleep(0.2)
-        monitor.stop()
-        #TODO FIXME
-        #motors.move_to_stored_position(poskey)
-        monitor.start()
-        last_savepos = poskey
-def user_goto_position(motors,monitor,key):
-    """goto a specific position (servo mode)"""
-    stop_all_servos()
-    ax = input('axis? ').upper()
-    posstr = input('position (servo mode)? ')
-    if not ax in axes:
-        print ("axis not found")
-        return
-    try:
-        pos = int(posstr)
-    except ValueError:
-        print ("illegal position")
-        return
-    motorDriver.WheelMode(SERVOS[ax]['ID'], False)
-    time.sleep(0.2)
-    motorDriver.GotoPos(SERVOS[ax]['ID'], pos)
-    time.sleep(0.2)
-    motorDriver.WheelMode(SERVOS[ax]['ID'], True)
-def user_query_position(motors,monitor,key):
-    """query motor positions"""
-    motors.stop_all()
-    axes = motors.axes
-    wheelpos = { _: 0 for _ in axes }
-    servopos = { _: 0 for _ in axes }
-    for ax in axes:
-        servo = motors._servos[ax]
-        wheelpos[ax] = servo.sram.read_current_location()
-        time.sleep(0.2)
-        servo.eeprom.write_operating_mode(0)
-        time.sleep(0.2)
-        servopos[ax] = servo.sram.read_current_location()
-        time.sleep(0.2)
-        servo.eeprom.write_operating_mode(1)
-    print ("current position (wheel)",wheelpos)
-    print ("current position (servo)",servopos)
-def user_toggle_led(motors,monitor,key):
-    """toggle LED"""
-    led.toggle()
-    log.info('LED {}'.format(['OFF','ON'][led.is_active]))
-def user_toggle_heater(motors,monitor,key):
-    """toggle heater"""
-    heater.toggle()
-    log.info(f"HEATER PWM active {heater.is_active} value {heater.value}")
-def user_enter_temperature_ramp(motors,monitor,key):
-    """enter temperature parameters"""
-    tkey = last_savepos or 'default'
-    print ("enter temperature ramp parameters for",tkey,\
-           "(empty for default)")
-    if tkey in TEMPERATURES:
-        tkey_defaults = tkey
-    else:
-        tkey_defaults = 'default'
-    Tmin, Tmax, dt, ts, tmax = (TEMPERATURES[tkey_defaults][_] \
-        for _ in ['Tmin','Tmax','dt','ts','tmax'])
-    Tminstr = input("Tmin = [{}]".format(Tmin))
-    Tmaxstr = input("Tmax = [{}]".format(Tmax))
-    dtstr = input("dt [{}] = ".format(dt))
-    tsstr = input("ts [{}] = ".format(ts))
-    tmaxstr = input("tmax [{}] = ".format(tmax))
-    try:
-        Tmin, Tmax, dt, ts, tmax = float(Tminstr), float(Tmaxstr), \
-            float(dtstr), float(tsstr), float(tmaxstr)
-        TEMPERATURES[tkey] = { 'Tmin': Tmin, 'Tmax': Tmax, \
-                               'dt': dt, 'ts': ts, 'tmax': tmax }
-    except ValueError:
-        print("illegal input, ignoring")
-def user_liftoff(motors,monitor,key):
-    """manual lift off"""
-    log.info("MANUAL LIFT OFF")
-    manual_lift_off = True
-    status['LO'] = True
-def user_camera(motors,monitor,key):
-    """user camera recording"""
-    if camera is not None:
-        camera.stop()
-        camera = None
-    else:
-        ckey = last_savepos or 'launch'
-        ckey += '{i:02d}'
-        i = 1
-        while ckey.format(i=i) in recordings:
-            i += 1
-        ckey = ckey.format(i=i)
-        recordings.append(ckey)
-        try:
-            camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
-            threading.Thread(target=camera.record).start()
-        except RuntimeError as e:
-            camera = None
-            print("ERROR starting camera",str(e))
-def user_help(motors,monitor,key):
-    """help"""
-    global user_actions
-    for ch in user_actions:
-        if ch<32 or ch>255:
-            chmap = next(k.name for k in reversed(Keys) if k==ch)
-        else:
-            chmap = chr(ch)
-        print("{k:8.8s} - {doc}".format(k=chmap,doc=user_actions[ch].__doc__))
-    print("___")
-    for i in range(1,5):
-        poskey = 'savepos'+str(i)
-        if poskey in POSITIONS:
-            print (' ',poskey,POSITIONS[poskey])
-
-
-user_actions = {
-    ord('0'): user_stop_all,
-    Keys.UP: user_movement,
-    Keys.DOWN: user_movement,
-    Keys.LEFT: user_movement,
-    Keys.RIGHT: user_movement,
-    Keys.PGUP: user_movement,
-    Keys.PGDOWN: user_movement,
-    Keys.F1: user_store_position,
-    Keys.F2: user_store_position,
-    Keys.F3: user_store_position,
-    Keys.F4: user_store_position,
-    Keys.F5: user_store_position,
-    # ord('H'): user_store_position,
-    ord('1'): user_recall_position,
-    ord('2'): user_recall_position,
-    ord('3'): user_recall_position,
-    ord('4'): user_recall_position,
-    ord('5'): user_recall_position,
-    # ord('h'): user_recall_position,
-    ord('q'): user_query_position,
-    ord('?'): user_help
+# the movement keys are defined above and will be automatically mapped
+# move this up to declaration section? could in principle store in json
+keymap = {
+    ord('0'): (CLI.stop_all,),
+    Keys.F1: (CLI.store_position,1),
+    Keys.F2: (CLI.store_position,2),
+    Keys.F3: (CLI.store_position,3),
+    Keys.F4: (CLI.store_position,4),
+    Keys.F5: (CLI.store_position,5),
+    ord('1'): (CLI.recall_position,1),
+    ord('2'): (CLI.recall_position,2),
+    ord('3'): (CLI.recall_position,3),
+    ord('4'): (CLI.recall_position,4),
+    ord('5'): (CLI.recall_position,5),
+    Keys.INSERT: (CLI.store_position,0),
+    Keys.HOME: (CLI.recall_position,0),
+    ord('q'): (CLI.query_position,),
+    ord('g'): (CLI.goto_position,),
+    ord('l'): (CLI.toggle_led,),
+    ord('h'): (CLI.toggle_heater,),
+    ord('t'): (CLI.enter_temperature_ramp,),
+    ord('x'): (CLI.lifoff,),
+    ord('c'): (CLI.camera,),
+    ord('?'): (CLI.user_help,)
 }
 
-with vm.Motors(device=st_device, log=log, axes_map=SERVO_AXIS_MAP) as motors:
+
+with vm.Motors(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, motorconf=SERVOS) as motors:
     # TODO FIXME
     monitor = vm.ServoMonitor(motors,increment=MONITOR_INTERVAL)
 
@@ -484,36 +337,43 @@ with vm.Motors(device=st_device, log=log, axes_map=SERVO_AXIS_MAP) as motors:
     # this is the main before-lift-off loop for user interaction
     # before lift off we are connected via umbilical
     # allow user to remote control with keyboard commands
-    log.info("PHASE 1: INTERACTIVE MODE")
-    while not status['LO']:
-        #for ax in motors.axes:
-        #    print("torque",ax,motors._servos[ax].sram.read_current_load())
-        #print(motors.controller.broadcast.sram.sync_read_current_load(motors.servo_ids))
-        ch = None
-        ch = getkey()
-        if ch is None:
-            # motor_moving time out
-            if motor_moving and motor_timeout > 0:
-                motor_timeout -= 1
-                if motor_timeout <= 0:
-                    if stop_all_servos():
-                        motor_timeout = MOTOR_TIMEOUT
-            continue
-        if ch == Keys.ESC:
-            stop = True
-            print("GOOD-BYE")
-            log.info("user exit (esc)")
-            break
-        if ch in user_actions:
-            user_actions[ch](motors,monitor,ch)
-        else:
-            user_help(motors,monitor,ch)
+    if not status['LO']:
+        log.info("PHASE 1: INTERACTIVE MODE - WAITING FOR LIFT OFF")
+        stop_event = threading.Event()
+        threading.Thread(target=wait_for_lo,args=[stop_event]).start()
+        with vesicolos_utils.cli.CLI(motors,moitor,led,heater,camera,keymap,arrowmap) as cli:
+            threading.Thread(target=cli.start,args=[stop_event]).start()
+    
+            while not status['LO']:
+                # TODO FIXME
+                # monitoring of stuff goes here while the UI is running
+                #for ax in motors.axes:
+                #    print("torque",ax,motors._servos[ax].sram.read_current_load())
+                #print(motors.controller.broadcast.sram.sync_read_current_load(motors.servo_ids))
+                if stop_event.is_set():
+                    # stop_event will be set by UI if the user exits
+                    # or by the wait_for_lo if that enconuters a timeout
+                    # (which is currently not implemented)
+                    break
+            # the UI and the wait_for_lo thread will listen to this:
+            stop_event.set()
 
-    # cleanup
-    motors.stop_all()
-    motors.wheel_mode()
+            # TODO FIXME: now is the time to read from cli the stored positions
+
+            manual_lift_off = not cli.stop and not status['LO']
+            stop = cli.stop # True is user told us to stop
+            if not stop and not status['LO']:
+                # user didn't tell to stop, but LO signal didn't come
+                # this is treated as a "manual lift-off"
+                manual_lift_off = True
+                status['LO'] = True
+
+        # cleanup, only needed if we didn't have LO right away
+        motors.stop_all()
+        motors.wheel_mode()
 
     #  SECOND PHASE
+    # TODO:FIXME from here
     
     # we have a lift-off, so remote control is off now
     

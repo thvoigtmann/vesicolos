@@ -12,7 +12,7 @@ class Motors:
     ST_MAX_WRAPS = 7
     ST_MIDDLE = 2048
     mode_names = { 0: "position", 1: "wheel", 2: "PWM", 3: "stepper" }
-    def __init__ (self, device, log, axes_map={}):
+    def __init__ (self, device, log, axes_map={}, motorconf={}):
         self.controller = ST3215(device)
         self.log = log
         self.log.info("Scanning for servos.")
@@ -57,6 +57,9 @@ class Motors:
         #    print(e)
         #    pass
         #print(self._servos)
+
+        self.motorconf = motorconf
+
     def __enter__ (self):
         return self
     def __exit__ (self, exc_type, exc_value, traceback):
@@ -79,6 +82,12 @@ class Motors:
                 success = False
         return success
         #return sum(map(abs,speeds))==0
+    def set_speed (self, axis, vel):
+        if axis in self.axes:
+            res = self._servos[axis].sram.write_running_speed(vel)
+            if res and not res['error']:
+                self.current_set_speed[axis] = vel
+        return res
     def wheel_mode (self, axis=-1):
         """Set motor specified by `axis` to wheel mode.
         If `axis==-1` (default), apply to all axes."""
