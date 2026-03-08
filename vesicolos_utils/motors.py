@@ -67,6 +67,14 @@ class MotorController:
         #print(self._servos)
 
         self.motorconf = motorconf
+        # sanitize motorconf
+        motorconf_default = self.motorconf.get('_default_',{})
+        for ax in self.axes:
+            if not ax in self.motorconf:
+                self.motorconf[ax] = {}
+            for key in ['SPEED_INC']: # we rely on the presence of those
+                if not key in self.motorconf[ax]:
+                    self.motorconf[ax][key] = motorconf_default.get(key,0)
 
     def __enter__ (self):
         return self
@@ -84,6 +92,7 @@ class MotorController:
         self.controller.broadcast.sram.sync_write_running_speed(
                 {servo.id: 0 for servo in self._servos.values()}
         )
+        # use broadcast sync_read_current_speed for return?
         for ax in self.current_set_speed:
             vel = self._servos[ax].sram.read_current_speed()
             if vel is not None:
@@ -92,20 +101,41 @@ class MotorController:
                 success = False
         return success
         #return sum(map(abs,speeds))==0
-    def set_speed (self, axis, vel):
+    def set_speed (self, axis, vel, return_read=False):
         if axis in self.axes:
             res = self._servos[axis].sram.write_running_speed(vel)
             if res and not res['error']:
                 self.current_set_speed[axis] = vel
-        return res
-    def wheel_mode (self, axis=-1):
+        read_vel = None
+        if return_read:
+            read_vel = self._servos[axis].sram.read_current_speed()
+        return res, read_vel
+    def get_speed (self, axis):
+        if axis in self.axes:
+            vel = self._servos[axis].sram.read_current_speed()
+            return vel
+        return None
+    # TODO
+    def goto_position (self, axis, pos):
+        pass
+    def read_position (self, axis=-1):
+        if axis<0:
+            pos = {}
+            for ax in self.axes:
+                pos[ax] = self._servos[ax].sram.read_current_location()
+            return pos
+        elif axis in self.axes:
+            pos = self._servos[axis].sram.read_current_location()
+            return pos
+    def wheel_mode (self, axis=-1, wheel=True):
         """Set motor specified by `axis` to wheel mode.
         If `axis==-1` (default), apply to all axes."""
+        mode = 1 if wheel else 0
         if axis<0:
             for ax in self.axes:
-                self._servos[ax].eeprom.write_operating_mode(1)
+                self._servos[ax].eeprom.write_operating_mode(mode)
         elif axis in self.axes:
-            self._servos[axis].eeprom.write_operating_mode(1)
+            self._servos[axis].eeprom.write_operating_mode(mode)
 
 
 # the stuff that follows here would be ideally in the Servo API?
@@ -120,15 +150,32 @@ def ServoWheelMode (servo):
 # monitor for servo positions
 # we also output signal status here for convenience
 class ServoMonitor():
-    def __init__ (self, motors, increment, silent=False):
+    def __init__ (self, motors, increment, silent=False, state={}):
         self.next_t = time.time()
         self.silent = silent
         self.done = False
         self.motors = motors
+        self.log = self.motors.log # TODO FIXME create own logger?
         self.increment = increment
-        self.pos = { _:0 for _ in motors.axes }
-        self.vel = { _:0 for _ in motors.axes }
-        self.wrap = { _:0 for _ in motors.axes }
+        self.pos = state.get('motor.pos',{})
+        self.wrap = state.get('motor.wrap',{})
+        success, pos, self.vel = self.read_pos_vel()
+        # for pos, check if we have stored state variables
+        # if we do, the positions must match, else the hardware is not
+        # in a state that the state variables think it is, and this is
+        # potentially dangerous
+        self.state_valid = True
+        for ax in self.motors.axes:
+            if ax in self.pos:
+                if success and not (self.pos[ax] == pos[ax]):
+                    self.log.error(f"{ax} axis mismatch of position: restart {self.pos[ax]} / current {pos[ax]}")
+                    self.pos[ax] = pos[ax]
+                    self.wrap[ax] = 0
+                    self.state_valid = False
+            else:
+                self.pos[ax] = pos[ax]
+            if not ax in self.wrap:
+                self.wrap[ax] = 0
         self._run()
     def _run (self):
         if not self.done:
@@ -142,8 +189,7 @@ class ServoMonitor():
                 #log.info(str(status)+" T="+str(temp_sensor.temperature))
             self.next_t += self.increment
             threading.Timer(self.next_t - time.time(), self._run).start()
-    # update: query the motor positions, try to detect wrap-arounds
-    def update_pos (self,detect_wrap=True):
+    def read_pos_vel (self):
         success = True
         newpos = { _:0 for _ in self.motors.axes }
         newvel = { _:0 for _ in self.motors.axes }
@@ -156,18 +202,24 @@ class ServoMonitor():
                 success = False
             #TODO FIXME how to read comm error?
             #success &= motorDriver.success(comm, err)
-        if success and detect_wrap:
+            #how to handle this
+        return success, newpos, newvel
+    # update: query the motor positions, try to detect wrap-arounds
+    def update_pos (self,detect_wrap=True):
+        success, newpos, newvel = self.read_pos_vel()
+        if success:
             for ax in self.motors.axes:
-                set_vel = self.motors.current_set_speed[ax]
-                if set_vel>0 and self.pos[ax] > Motors.ST_STEPS/2 and newpos[ax] < self.pos[ax]:
-                    self.wrap[ax] += 1
-                if set_vel<0 and self.pos[ax] < Motors.ST_STEPS/2 and newpos[ax] > self.pos[ax]:
-                    self.wrap[ax] -= 1
-                if set_vel==0:
-                    if newpos[ax] < 100 and self.pos[ax] > Motors.ST_STEPS-100:
+                if detect_wrap:
+                    set_vel = self.motors.current_set_speed[ax]
+                    if set_vel>0 and self.pos[ax] > Motors.ST_STEPS/2 and newpos[ax] < self.pos[ax]:
                         self.wrap[ax] += 1
-                    if newpos[ax] > Motors.ST_STEPS-100 and self.pos[ax] < 100:
+                    if set_vel<0 and self.pos[ax] < Motors.ST_STEPS/2 and newpos[ax] > self.pos[ax]:
                         self.wrap[ax] -= 1
+                    if set_vel==0:
+                        if newpos[ax] < 100 and self.pos[ax] > Motors.ST_STEPS-100:
+                            self.wrap[ax] += 1
+                        if newpos[ax] > Motors.ST_STEPS-100 and self.pos[ax] < 100:
+                            self.wrap[ax] -= 1
                 self.pos[ax] = newpos[ax]
                 self.vel[ax] = newvel[ax]
         return success

@@ -18,15 +18,16 @@ GPIO.setmode(GPIO.BCM)
 try:
     import picamera2
 except:
-    print("picamera2 not available, continuing without camera")
+    print("picamera2 not available, continuing without camera control")
 
 # local repositories
 sys.path.append('python-st3215/src')
 sys.path.append('.')
 from python_st3215 import ST3215
 from vesicolos_utils import getkey,Keys,kill_proc_by_name,DummyGPIO
+from vesicolos_utils import logSetup, load_restart, save_restart
 import vesicolos_utils.motors as vm
-from vesicolos_utils.cli import CLI
+from vesicolos_utils.cli import CLI, keymap
 
 
 ## GLOBAL SETTINGS
@@ -62,12 +63,15 @@ MOTOR_DZ_WAIT = 0.1            # in seconds, wait time at each step
 # indefinitely, so there is a timeout in interactive mode
 MOTOR_TIMEOUT = 30              # seconds until motor stop in unattended UI mode
 # TODO also add a configurable torque limit, probably per axis (and direction?)
-# TODO cleanup
 SERVOS = {
-  'X': { 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200 },
-  'Y': { 'DEFAULT_SPEED': 2400, 'SPEED_INC': 200 },
-  'Z': { 'DEFAULT_SPEED':  200, 'SPEED_INC':  40, 'MAX_WRAP': 1 }
+  '_default_': { 'SPEED_INC': 200 },
+  'Z': { 'SPEED_INC': 40, 'MAX_WRAP': 1 }
 }
+# mapping of keys to control the Cartesian axes and their directions
+# this is currently configured to work in inverted mode, so that arrow
+# keys are intuitive if one watches the image on the camera
+# one could revert the directions if the keys should correspond to the
+# way the sample slide actually moves
 SERVO_CMDS = {
     Keys.LEFT:   { 'axis': 'Y', 'dir': +1 },
     Keys.RIGHT:  { 'axis': 'Y', 'dir': -1 },
@@ -76,6 +80,44 @@ SERVO_CMDS = {
     Keys.PGUP:   { 'axis': 'Z', 'dir': -1 },
     Keys.PGDOWN: { 'axis': 'Z', 'dir': +1 }
 }
+
+# state variables are those that will be continuously saved to a restart file
+# and read from there upon startup
+# they reflect everything that the user or the hardware state could modify
+# (stored positions, stored temperature profiles, wrap counter for motors)
+# and that we want back after a program cycle
+# these could be power cycles, so we try to catch what we can
+# what is configurable here is the default temperature profile
+STATE_VARS = {
+    'user.positions': {},
+    'user.temperatures': {
+        'default': { 'Tmin': 25, 'Tmax': 40, 'dt': 30, 'ts': 10, 'tmax': 90 }
+    },
+    'motor.pos': {},
+    'motor.wrap': {}
+}
+# the temperature profile is defined like this:
+#     T(t) = Tmin                              for t < ts
+#     T(t) = Tmin + (Tmax-Tmin)*(t-ts)/dt      for ts < t < ts+dt
+#     T(t) = Tmax                              for ts+dt < t < tmax
+# where t=0 is set by the time a stored position is first moved to
+def T(t,Tmin,Tmax,dt,ts):
+    tau = t-ts
+    if tau <= 0:
+        return Tmin
+    if tau >= dt:
+        return Tmax
+    return Tmin + (Tmax - Tmin) * tau/dt
+
+# files that will be written by the process
+RESTARTFILE = 'vesicolos-restart.json'
+# all these files will reside in a run-specific directory that is created
+LOGPATH = '%Y-%m-%d-%H-%M-%S' # will be used within strftime
+LOGFILE = 'vesicolos.log'
+TEMPERATURE_LOG = 'temperature.log'
+CAMFILE = 'capture-{pos}.h264' # could use {frame:06d} or something
+PTSFILE = 'capture-{pos}-pts.txt'
+RPICAM_PROCESS = 'rpicam-vid'
 
 
 ## HARDWARE SETTINGS
@@ -113,90 +155,24 @@ ST_MAX_ID = 10                 # maximum servo ID to scan for (curr. not used)
 SERVO_AXIS_MAP = { 0: 'X', 9: 'Y', 1: 'Z' }
 
 
-## TODO: positions and temperatures, probably somewhere else
-
-# user-entry variables: the values here will be affected by the user interaction
-# these are stored in a restart file and re-read from there if possible
-# user-saved positions will be stored here
-POSITIONS = {}
-# for each user-saved position we can define our own temperature ramps
-# defined by Tmin, Tmax, dt (ramp time) and a start time ts
-# (where here all times are measured in reference to the time where
-# the temperature control of this profile became active)
-# via T(t) = Tmin + (Tmax-Tmin)*(t-ts)/dt
-# we also define a maximum time to spend in this ramp
-# this is only used as a waiting time, not by the temperature controller
-TEMPERATURES = {
-  'default': { 'Tmin': 25, 'Tmax': 40, 'dt': 30, 'ts': 10, 'tmax': 90 }
-}
-def T(t,Tmin,Tmax,dt,ts):
-    tau = t-ts
-    if tau <= 0:
-        return Tmin
-    if tau >= dt:
-        return Tmax
-    return Tmin + (Tmax - Tmin) * tau/dt
 
 
 ## STARTUP CODE
 
-# setup logging
-def logSetup ():
-    """Setup logging, first to console, then to file.
-    Attempts to create a time-stamped directory.
-    Returns:
-    --------
-    log : logging object
-    path : directory for log and output files
-    """
-    log = logging.getLogger("VESICOLOS")
-    if os.environ.get("DEBUG"):
-        log.setLevel(logging.DEBUG)
-    else:
-        log.setLevel(logging.INFO)
-    _log_formatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
-    _console_log = logging.StreamHandler()
-    _console_log.setFormatter(_log_formatter)
-    log.addHandler(_console_log)
+# TODO FIXME temperature log needs to be setup
+log, path = logSetup(LOGPATH, LOGFILE, TEMPERATURE_LOG)
+camfile = os.path.join(path,CAMFILE)
+ptsfile = os.path.join(path,PTSFILE)
 
-    tstamp = time.strftime("%Y-%m-%d-%H-%M-%S")
-    try:
-        os.mkdir(tstamp)
-    except:
-        log.critical(f"cannot create output directory {tstamp}")
-        sys.exit(errno.ENOENT)
+# stop: True is user requested exit (no mug program is run)
+# manual_lift_off: True is user set LO instead of GPIO signal
+stop = False
+manual_lift_off = False
 
-    _file_log = logging.FileHandler(tstamp+'/vesicolos.log')
-    _file_log.setFormatter(_log_formatter)
-    log.addHandler(_file_log)
-    return log, tstamp
-
-
-log, path = logSetup()
-
-restartfile = 'vesicolos-restart.json'
-temperature_logfile = path+'/temperature.log'
-camfile = path+'/capture-{pos}.h264' # could use {frame:06d}
-ptsfile = path+'/capture-{pos}-pts.txt'
-rpicam_process = 'rpicam-vid'
-
-
-# global state variables
-
+# GPIO signals
 status = { _: False for _ in STATUS_PINS }
 for pin in STATUS_PINS.values():
     GPIO.setup(pin, GPIO.IN)
-
-stop = False
-manual_lift_off = False
-debug = False
-motor_moving = False
-
-# global objects
-
-# TODO FIXME: for led and heater, reconsider setting to None on GPIO error
-# the UI should handle this gracefully
-# and the later code: could try to re-init if None
 
 # LED uses hardware PWM, taken care of by the gpiozero module
 try:
@@ -205,8 +181,7 @@ try:
 except Exception as e:
     log.error('LED init failed: '+str(e))
     log.error('LED externally controlled')
-    led = DummyGPIO(log,'LED')
-    led.off()
+    led = None
 
 # heater uses hardware PWM, taken care of by the gpiozero module
 try:
@@ -215,9 +190,7 @@ try:
 except Exception as e:
     log.error('HEATER init failed: '+str(e))
     log.error('heater externally controlled')
-    heater = DummyGPIO(log,'HEATER')
-    heater.off()
-
+    heater = None
 
 # temperature sensor, SPI on a MAX31865 board, taken care of by adafruit module
 try:
@@ -230,7 +203,6 @@ except Exception as e:
     log.error('no temperature sensor available')
     temp_sensor = None
 
-
 # TODO: FIX THIS
 #temperature_log = Logger(temperature_logfile)
 
@@ -241,7 +213,6 @@ st_device = ST_DEVICE.get(rpi_model,ST_DEVICE['_default_'])
 st_device = os.environ.get("ST_DEVICE",st_device)
 log.info(f"using {st_device} as UART device")
 
-global monitor
 monitor = None
 
 
@@ -263,104 +234,53 @@ def wait_for_lo (stop_event):
         log.info("*** LIFT OFF ***")
 
 
-# TODO FIXME: save_restart should now be handled by the UI
-# read_restart: not sure yet where to put it
-# FIXME the save_restart should only write motors.wrap if the motors
-# are currently not moving!
-# if the program crashes while the motors are moving, we most likely
-# don't know where we are, the wrap might be wrong, and thus we should
-# not rely on being able to reuse the saved positions
-# if we manage to switch the whole user-movement stuff to servo mode
-# we could at least save target positions (where the motor would move
-# to if we were cut off?)
-# try re-reading saved parameters on restart
-# to catch power cycles
-# this is done here so that we can adjust our wraparound counter as well
-try:
-    with open(restartfile, 'r') as f:
-        data = json.load(f)
-        TEMPERATURES = data['TEMPERATURES']
-        POSITIONS = data['POSITIONS']
-        monitor.wrap = data['wrap']
-    print("re-loaded from restart file")
-except:
-    pass
-# every 10 seconds, write current temperature and position settings
-# to the restart file
-prog_end = False
-def save_restart ():
-    global prog_end, monitor
-    while not prog_end:
-        if monitor:
-            with open(restartfile, 'w') as f:
-                json.dump({'TEMPERATURES': TEMPERATURES, 'POSITIONS': POSITIONS, \
-                           'wrap':monitor.wrap}, f, sort_keys=True, indent=4)
-
-        time.sleep(10)
-        os.sync()
-# TODO FIXME
-#threading.Thread(target=save_restart).start()
-
-
 
 ## MAIN
 
 
-last_savepos = None
 camera = None
-recordings = []
+recordings = [] # TODO FIXME need to pull that from the UI ?
+# or rather, we start our own new set of recordings
 motor_timeout = MOTOR_TIMEOUT
 
-# TODO FIXME how to treat upper-case characters?
-# do we want to distinguish, or do we want to be failsafe against capslock?
-# (we probably are not anyway because of the F1... and 1... keys
+# load restart file
+# this is supposed to catch power cycles, in particular allowing for
+# the case where some positions to search are stored ahead of
+# integration into the rocket, or if lift-off causes a power cycle
+# TODO FIXME if we crash while the motors are moving, what happens?
+load_restart (STATE_VARS, RESTARTFILE, log)
 
-# USER-INTERFACE FUNCTIONS
-# the movement keys are defined above and will be automatically mapped
-# move this up to declaration section? could in principle store in json
-keymap = {
-    ord('0'): (CLI.stop_all,),
-    Keys.F1: (CLI.store_position,1),
-    Keys.F2: (CLI.store_position,2),
-    Keys.F3: (CLI.store_position,3),
-    Keys.F4: (CLI.store_position,4),
-    Keys.F5: (CLI.store_position,5),
-    ord('1'): (CLI.recall_position,1),
-    ord('2'): (CLI.recall_position,2),
-    ord('3'): (CLI.recall_position,3),
-    ord('4'): (CLI.recall_position,4),
-    ord('5'): (CLI.recall_position,5),
-    Keys.INSERT: (CLI.store_position,0),
-    Keys.HOME: (CLI.recall_position,0),
-    ord('q'): (CLI.query_position,),
-    ord('g'): (CLI.goto_position,),
-    ord('l'): (CLI.toggle_led,),
-    ord('h'): (CLI.toggle_heater,),
-    ord('t'): (CLI.enter_temperature_ramp,),
-    ord('x'): (CLI.liftoff,),
-    ord('c'): (CLI.camera,),
-    ord('?'): (CLI.user_help,)
-}
+prog_end = threading.Event()
+
 
 with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, motorconf=SERVOS) as motor_controller:
-    # TODO FIXME
-    monitor = vm.ServoMonitor(motor_controller,increment=MONITOR_INTERVAL)
+    monitor = vm.ServoMonitor(motor_controller,increment=MONITOR_INTERVAL,state=STATE_VARS)
+    # the monitor will set state_valid to False is the positions read
+    # from the restart file don't match the ones read from the motors
+    if not monitor.state_valid:
+        # the monitor will have already warned in the log file
+        # we invalidate any stored positions
+        STATE_VARS["user.positions"] = {}
 
-    for ax in motor_controller.axes:
-        vm.ServoWheelMode(motor_controller._servos[ax])
-        print("max torque",ax,motor_controller._servos[ax].eeprom.read_max_torque())
+    threading.Thread(target=save_restart,args=[prog_end,RESTARTFILE,STATE_VARS]).start()
+
     motor_controller.stop_all()
-    motor_moving = False
+    motor_controller.wheel_mode()
+    for ax in motor_controller.axes:
+        # TODO FIXME
+        print("max torque",ax,motor_controller._servos[ax].eeprom.read_max_torque())
 
     ## PHASE 1: USER INTERACTION BEFORE LIFT OFF
+
     # this is the main before-lift-off loop for user interaction
     # before lift off we are connected via umbilical
     # allow user to remote control with keyboard commands
+
     if not status['LO']:
         log.info("PHASE 1: INTERACTIVE MODE - WAITING FOR LIFT OFF")
         stop_event = threading.Event()
         threading.Thread(target=wait_for_lo,args=[stop_event]).start()
-        with CLI(motor_controller=motor_controller,monitor=monitor,led=led,heater=heater,camera=camera,keymap=keymap,movement_map=SERVO_CMDS) as cli:
+        with CLI(motor_controller=motor_controller,monitor=monitor,led=led,heater=heater,keymap=keymap,movement_map=SERVO_CMDS,state=STATE_VARS) as cli:
             threading.Thread(target=cli.start,args=[stop_event]).start()
     
             try:
@@ -380,10 +300,15 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
             # the UI and the wait_for_lo thread will listen to this:
             stop_event.set()
 
-            # TODO FIXME: now is the time to read from cli the stored positions
+            # now is the time to read from cli the stored positions
+            # in fact, this shouldn't even be necessary because the cli
+            # will update those STATE_VARS in place
+            STATE_VARS['user.positions'], STATE_VARS['user.temperatures'] \
+                = cli.read_user_settings()
+            camera = cli.camera # maybe the user started a camera
 
             manual_lift_off = not cli.stop and not status['LO']
-            stop = cli.stop # True is user told us to stop
+            stop = cli.stop # True means user told us to stop
             if not stop and not status['LO']:
                 # user didn't tell to stop, but LO signal didn't come
                 # this is treated as a "manual lift-off"
@@ -394,11 +319,12 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         motor_controller.stop_all()
         motor_controller.wheel_mode()
 
-    #  SECOND PHASE
-    # TODO:FIXME from here
-    
+
+    ## PHASE 2: WAITING AFTER LIFT OFF
+
     # we have a lift-off, so remote control is off now
-    
+    # we now wait for either microgravity or for the corresponding timeout
+
     if not stop:
         motor_controller.stop_all()
         if not manual_lift_off:
@@ -408,16 +334,16 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
             # we do not interrupt them
             if camera is None:
                 # kill external previewer app if running, we want the cam ours now
-                kill_proc_by_name(rpicam_process, log)
+                kill_proc_by_name(RPICAM_PROCESS, log)
                 try:
                     camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff'})
                     threading.Thread(target=camera.record).start()
                     led.on()
                 except RuntimeError as e:
                     camera = None
-                    log.err("camera error "+str(e))
+                    log.error("camera error "+str(e))
             while not GPIO.input(STATUS_PINS['mug']):
-                log.write("waiting for microgravity")
+                log.info("waiting for microgravity")
                 time.sleep(0.5)
                 if time.time() - t0 >= SOE_TIMEOUT:
                     log.write("SOE by timeout")
@@ -427,27 +353,26 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
             status['mug'] = True
     
     
-    
-    ## THIRD PHASE: MICROGRAVITY EXPERIMENT
-    
-    
+    ## PHASE 3: MICROGRAVITY EXPERIMENT
+
     # microgravity timeout: handled by UNIX ALRM signal
     # but the loop here polls the mug pin and sends the signal once that
     # flag goes off, cancelling possibly before
+
     def microgravity_timeout ():
-        global status
+        global status, manual_lift_off, log
         #signal.alarm(EXP_TIMEOUT)
         t0 = time.time()
         while MUG_STICKY or GPIO.input(STATUS_PINS['mug']) or manual_lift_off:
             time.sleep(1)
             if time.time() - t0 >= EXP_TIMEOUT:
-                log.write("SOE OFF by timeout")
+                log.info("SOE OFF by timeout")
                 break
         status['mug'] = MUG_STICKY or bool(GPIO.input(STATUS_PINS['mug'])) \
                         or manual_lift_off
-        log.write("END OF MUG")
+        log.info("END OF MUG")
         signal.raise_signal(signal.SIGALRM)
-    
+
     # the SIGALRM handler is responsible for raising the exception that will
     # interrupt the microgravity_experiment() function
     class MicrogravityTimeout (Exception):
@@ -467,6 +392,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         # this is not really a logger, it is just an open file
         # maybe pass just the fh here so that we can embed in with ... as fh
         # or with TemperatureController(logfile) as Temp:
+        # TODO FIXME: if no 'default' in TEMPERATURES: turn off temp control
         def __init__ (self):
             self.set_profile (TEMPERATURES['default'])
         def __del__ (self):
@@ -492,13 +418,14 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                     "t0 = {}, t = {}, T = {}, Ttarget = {}, heat {}" \
                     .format(self.t0,t,Tcurrent,Ttarget,heater.is_active))
                 time.sleep(1)
-    
-    Tcontrol = TemperatureController()
-    
-    
-    
+
+    if not stop: # TODO FIXME move this down?
+        Tcontrol = TemperatureController()
+
+
+
     # CORE MICROGRAVITY EXPERIMENT PROCEDURE
-    
+
     def microgravity_experiment ():
         positions = sorted(POSITIONS.keys() or ['default'])
         log.write("mug sequence: positions "+" / ".join(positions))
@@ -579,29 +506,35 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         except MicrogravityTimeout as msg:
             log.write(str(msg))
         signal.alarm(0) # clear any remaining ALRM signals
-    
-    
-    
+
+    # TODO FIXME monitor should reside in motor_controller and be stopped there
+    monitor.stop()
+
+
 ## SHUTDOWN
 
 print('SHUTDOWN')
+prog_end.set()
 os.sync()
 
 # on shutdown, the motors should stop!
-# this is handled by the Motors context handler
+# this is handled by the MotorController context handler
+# that should have by now also closed the serial port
 
+if led is not None:
+    led.off()
+    led.close()
+    led = None
+if heater is not None:
+    heater.off()
+    heater.close()
+    heater = None
 if camera is not None:
     camera.stop()
     camera = None
-led.off()
-heater.off()
-# the above two lines should switch off the LED and the heater
-# however, after program exit, they come on again magically
-# the stuff below is an (unsuccessful) attempt to prevent that
-led.close()
-heater.close()
-led = None
-heater = None
+
+# TODO FIXME the LED and the heater seem to come back on once the code
+# quits, is there some GPIO fiddling that we can do to prevent that?
 #try:
 #    GPIO.setup(GPIO_LED, GPIO.OUT)
 #    GPIO.setup(GPIO_HEATER, GPIO.OUT)
@@ -609,12 +542,6 @@ heater = None
 #    GPIO.output(GPIO_HEATER, False)
 #except Exception as err:
 #    print('ERR' + str(err))
-
-# stop all servos, close port
-
-if monitor:
-    monitor.stop()
-prog_end = True
 
 print('END')
 log.info('EXIT')

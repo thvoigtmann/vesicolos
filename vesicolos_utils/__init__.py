@@ -1,3 +1,7 @@
+import time, os, sys
+import logging
+import json
+
 from .getkey import getkey, Keys
 
 def kill_proc_by_name(name, log):
@@ -15,6 +19,70 @@ def kill_proc_by_name(name, log):
         except psutil.AccessDenied:
             log.error(f"Access denied to {proc.pid}")
 
+# setup logging
+def logSetup (path_template, logfile, templogfile):
+    """Setup logging, first to console, then to file.
+    Attempts to create a time-stamped directory.
+    Returns:
+    --------
+    log : logging object
+    path : directory for log and output files
+    """
+    log = logging.getLogger("VESICOLOS")
+    if os.environ.get("DEBUG"):
+        log.setLevel(logging.DEBUG)
+    else:
+        log.setLevel(logging.INFO)
+    _log_formatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
+    _console_log = logging.StreamHandler()
+    _console_log.setFormatter(_log_formatter)
+    log.addHandler(_console_log)
+
+    path = time.strftime(path_template)
+    try:
+        os.mkdir(path)
+    except:
+        log.critical(f"cannot create output directory {path}")
+        sys.exit(errno.ENOENT)
+
+    _file_log = logging.FileHandler(os.path.join(path,logfile))
+    _file_log.setFormatter(_log_formatter)
+    log.addHandler(_file_log)
+    # TODO FIXME SETUP temperature log here!? TEMPERATURE_LOG
+    return log, path 
+
+
+def load_restart (state, restartfile, log):
+    try:
+        with open(restartfile, 'r') as f:
+            data = json.load(f)
+            for k in state:
+                 if k in data:
+                     state[k] = data[k]
+        log.info("re-loaded state from restart file")
+    except FileNotFoundError:
+        pass
+
+# save restart file every 10 seconds
+# intended to be called from its own subthread
+def save_restart (prog_end, restartfile, state):
+    cnt = 0
+    while not prog_end.is_set():
+        if cnt >= 5:
+            with open(restartfile, 'w') as f:
+                json.dump(state, f, sort_keys=True, indent=4)
+            cnt = 0
+        cnt += 1
+        time.sleep(2)
+        os.sync()
+    # at program end, write again for sure
+    with open(restartfile, 'w') as f:
+        json.dump(state, f, sort_keys=True, indent=4)
+    os.sync()
+
+
+# this is currently no longer in used but can be used instead of None
+# for led, heater when the initialization fails
 class DummyGPIO(object):
     """A drop-in replacement for gpiozero LED and PWMOutputDevice
     objects that we can use to do nothing when the GPIO init fails."""

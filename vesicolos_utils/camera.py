@@ -25,6 +25,3 @@ class CameraController ():
         self.picam.stop_recording()
         print("STOP cam recording")
         self.picam.close()
-
-
-
