@@ -1,5 +1,5 @@
 import logging
-from vesicolos_utils import getkey, Keys
+from vesicolos_utils import getkey, Keys, make_camera_key
 
 
 
@@ -197,6 +197,8 @@ class CLI:
         self.log.info(f"HEATER PWM active {self.heater.is_active} value {self.heater.value}")
     def enter_temperature_ramp(self):
         """enter temperature parameters"""
+        # TODO FIXME does this work!?
+        global T_SIGNATURE
         if self.motors:
             self.motor_controller.stop_all()
         self.monitor.stop()
@@ -207,7 +209,7 @@ class CLI:
             tkey_defaults = tkey
         else:
             tkey_defaults = 'default'
-        Tparam = ['Tmin','Tmax','dt','ts','tmax']
+        Tparam = T_SIGNATURE
         defaults, inputs = {}, {}
         fail = False
         for t in Tparam:
@@ -236,15 +238,10 @@ class CLI:
             self.camera.stop()
             self.camera = None
         else:
-            ckey = self.last_savepos or 'launch'
-            ckey += '_{i:02d}'
-            i = 1
-            while ckey.format(i=i) in self.recordings and i<99:
-                i += 1
-            ckey = ckey.format(i=i)
+            ckey = make_camera_key (self.recordings, self.last_savepos or 'launch', pre='user_')
             self.recordings.append(ckey)
             try:
-                self.camera = CameraController(camfile,pts=ptsfile,keys={'pos':'user_'+ckey})
+                self.camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
                 threading.Thread(target=self.camera.record).start()
             except RuntimeError as e:
                 self.camera = None

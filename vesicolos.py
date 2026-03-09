@@ -27,6 +27,7 @@ from python_st3215 import ST3215
 from vesicolos_utils import getkey,Keys,kill_proc_by_name,DummyGPIO
 from vesicolos_utils import logSetup, load_restart, save_restart
 import vesicolos_utils.motors as vm
+import vesicolos_utils.temperature as vt
 from vesicolos_utils.cli import CLI, keymap
 
 
@@ -96,12 +97,17 @@ STATE_VARS = {
     'motor.pos': {},
     'motor.wrap': {}
 }
+TMAX_DEFAULT = 50 # should not be used if we have 'tmax' keys
 # the temperature profile is defined like this:
 #     T(t) = Tmin                              for t < ts
 #     T(t) = Tmin + (Tmax-Tmin)*(t-ts)/dt      for ts < t < ts+dt
 #     T(t) = Tmax                              for ts+dt < t < tmax
 # where t=0 is set by the time a stored position is first moved to
-def T(t,Tmin,Tmax,dt,ts):
+T_SIGNATURE = ["Tmin","Tmax","dt","ts","tmax"]
+def T(t,Tmin,Tmax,dt,ts,tmax):
+    if t>tmax:
+        # should not happen anyway, but should make the heater go off
+        return 0.
     tau = t-ts
     if tau <= 0:
         return Tmin
@@ -239,8 +245,6 @@ def wait_for_lo (stop_event):
 
 
 camera = None
-recordings = [] # TODO FIXME need to pull that from the UI ?
-# or rather, we start our own new set of recordings
 motor_timeout = MOTOR_TIMEOUT
 
 # load restart file
@@ -254,6 +258,8 @@ prog_end = threading.Event()
 
 
 with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, motorconf=SERVOS) as motor_controller:
+    # TODO FIXME not ServoMonitor, this is a general monitor
+    # give it also the temperature sensor
     monitor = vm.ServoMonitor(motor_controller,increment=MONITOR_INTERVAL,state=STATE_VARS)
     # the monitor will set state_valid to False is the positions read
     # from the restart file don't match the ones read from the motors
@@ -336,7 +342,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                 # kill external previewer app if running, we want the cam ours now
                 kill_proc_by_name(RPICAM_PROCESS, log)
                 try:
-                    camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff'})
+                    camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff_auto'})
                     threading.Thread(target=camera.record).start()
                     led.on()
                 except RuntimeError as e:
@@ -386,39 +392,6 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
             raise MicrogravityTimeout("END OF EXPERIMENT")
     
     
-    # TODO: FIXME move this to vesicolos_utils/temperature.py ?
-    class TemperatureController ():
-        # TODO: make this carry its own logfile handle, init with fname
-        # this is not really a logger, it is just an open file
-        # maybe pass just the fh here so that we can embed in with ... as fh
-        # or with TemperatureController(logfile) as Temp:
-        # TODO FIXME: if no 'default' in TEMPERATURES: turn off temp control
-        def __init__ (self):
-            self.set_profile (TEMPERATURES['default'])
-        def __del__ (self):
-            if heater is not None:
-                heater.off()
-        def set_profile (self, profile):
-            self.Tmin, self.Tmax, self.dt, self.ts = \
-                profile['Tmin'], profile['Tmax'], profile['dt'], profile['ts']
-            self.t0 = time.time()
-        def control (self):
-            while heater is not None:
-                t = time.time()
-                Ttarget = T(t-self.t0,self.Tmin,self.Tmax,self.dt,self.ts)
-                Tcurrent = temp_sensor.temperature
-                if Tcurrent < Ttarget:
-                    heater.on()
-                elif Tcurrent >= Ttarget:
-                    # we cannot currently cool
-                    # we could use PWM to heat less once we get near target
-                    # but this is not implemented yet
-                    heater.off()
-                temperature_log.write(\
-                    "t0 = {}, t = {}, T = {}, Ttarget = {}, heat {}" \
-                    .format(self.t0,t,Tcurrent,Ttarget,heater.is_active))
-                time.sleep(1)
-
     if not stop: # TODO FIXME move this down?
         Tcontrol = TemperatureController()
 
@@ -427,53 +400,54 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
     # CORE MICROGRAVITY EXPERIMENT PROCEDURE
 
     def microgravity_experiment ():
-        positions = sorted(POSITIONS.keys() or ['default'])
-        log.write("mug sequence: positions "+" / ".join(positions))
+        positions = sorted(STATE_VARS['user.positions'].keys() or ['default'])
+        log.info("mug sequence: positions "+" / ".join(positions))
         led.on()
+        recordings = []
         while status['mug'] or manual_lift_off:
             for pos in positions:
-                ckey = pos
-                ckey += '{i:02d}'
-                i = 1
-                while ckey.format(i=i) in recordings:
-                    i += 1
-                ckey = ckey.format(i=i)
+                ckey = make_camera_key(recordings, pos, pre='mug_')
                 recordings.append(ckey)
                 try:
                     camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
                     threading.Thread(target=camera.record).start()
                 except RuntimeError as e:
                     camera = None
-                    log.err('camera error '+str(e))
+                    log.error('camera error '+str(e))
                 if not pos == 'default':
-                    move_to_stored_position (pos)
+                    motor_controller.move_to_stored_position (STATE_VARS['user.positions'][pos], monitor.wrap)
                     do_zstack = True
                 else:
                     do_zstack = False
-                if pos in TEMPERATURES:
-                    Tprofile = TEMPERATURES[pos]
-                else:
-                    Tprofile = TEMPERATURES['default']
-                Tcontrol.set_profile (Tprofile)
+                Tcontrol.set_profile (pos)
                 # take some time, do z-stacks
-                tmax = Tprofile['tmax'] + time.time()
+                tmax = STATE_VARS['user.temperatures'].get(pos,{}).get('tmax',TMAX_DEFAULT)
+                tmax = tmax + time.time()
                 if 'Z' in axes:
-                    scs_id = SERVOS['Z']['ID']
-                    comm, err = motorDriver.WheelMode(scs_id, False)
+                    motor_contoller.wheel_mode('Z',wheel=False)
                     # do_zstack shall only be true if we don't have
                     # motor errors
-                    do_zstack &= motorDriver.success(comm, err)
+                    # TODO FIXME
+                    #do_zstack &= motorDriver.success(comm, err)
                     time.sleep(0.2)
-                    motorDriver.SetMiddle(scs_id)
-                    do_zstack &= motorDriver.success(comm, err)
+                    motor_controller.set_middle('Z')
+                    #do_zstack &= motorDriver.success(comm, err)
                     time.sleep(0.2)
                     # after set middle, motor is in servo mode, pos 2048
                     # set zpos to highest position first
+                    # TODO FIXME FIXME this relies on the fact that we
+                    # can fiddle with the position in servo mode but this
+                    # doesn't destroy the wheel mode positions that we
+                    # use for recalling stored positions
+                    # do we really need this???
+                    # can we not just read the current position and
+                    # rely on the fact that it will be within 4096
+                    # and thus the following code should work if we
+                    # replace 2048 by the current position??
                     zpos = 2048 + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
                     zcnt = 0
                     zdirection = -1
-                    motorDriver.GotoPos (scs_id, zpos)
-                    #motorDriver.WritePosEx (scs_id, zpos, 0, 0) # or ST_MOVING_ACC_SLOW
+                    motor_controller.goto_position('Z',zpos)
                 while True:
                     if do_zstack:
                         if zcnt >= MOTOR_DZ_STEPS:
@@ -481,13 +455,12 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                             zcnt = 0
                         zcnt += 1
                         zpos += zdirection*MOTOR_DZ_STEPSIZE
-                        motorDriver.GotoPos (scs_id, zpos) 
-                        #motorDriver.WritePosEx (scs_id, zpos, 0, 0) # or ST_MOVING_ACC_SLOW
+                        motor_controller.goto_position('Z',zpos)
                     time.sleep(MOTOR_DZ_WAIT)
                     if time.time() > tmax:
                         break
                 if 'Z' in axes:
-                    motorDriver.WheelMode(scs_id, True)
+                    motor_controller.wheel_mode('Z',wheel=True)
                     time.sleep(0.2)
                 if not camera is None:
                     camera.stop()
@@ -499,15 +472,17 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         # we now also need temperature control
         signal.signal(signal.SIGALRM, mug_timeout_handler)
         threading.Thread(target=microgravity_timeout).start()
-        temp_controller = TemperatureController ()
-        threading.Thread(target=temp_controller.control).start()
-        try:
-            microgravity_experiment()
-        except MicrogravityTimeout as msg:
-            log.write(str(msg))
+
+        with vt.TemperatureController(heater,temp_sensor,STATE_VARS['user.temperatures'],T,T_SIGNATURE,log) as Tcontrol:
+
+            threading.Thread(target=Tcontrol.start).start()
+            try:
+                microgravity_experiment()
+            except MicrogravityTimeout as msg:
+                log.info(str(msg))
+
         signal.alarm(0) # clear any remaining ALRM signals
 
-    # TODO FIXME monitor should reside in motor_controller and be stopped there
     monitor.stop()
 
 

@@ -116,7 +116,9 @@ class MotorController:
             return vel
         return None
     # TODO
-    def goto_position (self, axis, pos):
+    def goto_position (self, axis, pos, return_read=False):
+        # TODO FIXME: this should be just the sram call to set the position
+        # similar to set_speed
         pass
     def read_position (self, axis=-1):
         if axis<0:
@@ -136,19 +138,89 @@ class MotorController:
                 self._servos[ax].eeprom.write_operating_mode(mode)
         elif axis in self.axes:
             self._servos[axis].eeprom.write_operating_mode(mode)
-
-
-# the stuff that follows here would be ideally in the Servo API?
-def ServoWheelMode (servo):
-    servo.eeprom.write_operating_mode(1)
-    #servo.sram.torque_enable()
+    # TODO FIXME
+    def set_middle (self, axis):
+        pass
+    def move_to_position (self, target_pos, wrap):
+        """Move all motors to the positions given in `target_pos`, taking into
+        account the wrap-around counters `wrap`.
+        `target_pos` needs to be a dict with keys corresponding to the
+        axes, each storing a tuple of `(pos,wrap)` targets.
+        `wrap` needs to be a dict with axes as keys, indicating the
+        current wrap counter for that axis."""
+        # to go to a defined position:
+        # 1. calculate delta in wheel mode
+        # 2. go to servo mode, set current as middle position 2048
+        # 3. move to 2048+delta
+        #    possibly first a multiple of 7 turns if delta too large
+        # 4. go to wheel mode
+        try:
+            success = self.monitor.update_pos()
+            if not success:
+                raise Exception("failed updating position")
+            current_pos = self.monitor.pos
+            current_wrap = wrap
+            target_pos = { _: target_pos[_][0] for _ in self.axes }
+            target_wrap = { _: target_pos[_][1] for _ in self.axes }
+            print('current',current_pos,current_wrap)
+            print('target ',target_pos,target_wrap)
+            for ax in axes:
+                self.wheel_mode(ax, wheel=False)
+                time.sleep(0.2)
+                # TODO FIXME handle exception
+                #comm, err = motorDriver.SetMiddle(scs_id)
+                #if not motorDriver.success(comm, err):
+                #    raise Exception("failed setting motor reference pos")
+                delta_pos = target_pos[ax] - current_pos[ax]
+                delta_wrap = target_wrap[ax] - current_wrap[ax]
+                print('need delta',delta_pos,delta_wrap)
+                if 'MAX_WRAP' in self.motorconf[ax]:
+                    max_wrap = self.motorconf[ax]['MAX_WRAP']
+                    if abs(delta_wrap) > self.motorconf[ax]['MAX_WRAP']:
+                        self.log.error(f"axis {ax} should not move by {delta_wrap} turns, limiting to {max_wrap}")
+                    if delta_wrap > 0:
+                        delta_wrap = max_wrap
+                    else:
+                        delta_wrap = -max_wrap
+                if abs(delta_wrap) >= ST_MAX_WRAPS:
+                    direction = 1
+                    if delta_wrap < 0:
+                        direction = -1
+                    time.sleep(0.2)
+                    #FIXME
+                    #success = motorDriver.GotoPos(scs_id, \
+                    #      ST_MIDDLE + direction*ST_STEPS*(ST_MAX_WRAPS-1))
+                    #if not success:
+                    #    raise Exception("failed unwrapping")
+                    self.set_middle(ax) # FIXME
+                    #if not motorDriver.success(comm, err):
+                    #    raise Exception("failed re-setting motor reference pos")
+                    delta_wrap -= direction*(ST_MAX_WRAPS-1)
+                dpos = delta_pos + ST_STEPS*delta_wrap
+                self.goto_position(ax,ST_MIDDLE+dpos)
+                #if not success: FIXME
+                #    raise Exception("failed moving motor by delta steps")
+                time.sleep(0.2)
+                self.wheel_mode(ax, wheel=True)
+                time.sleep(0.2)
+                self.monitor.update_pos()
+                self.monitor.wrap[ax] = target_wrap[ax]
+                if self.monitor.pos[ax] < 100 and target_pos[ax] > ST_STEPS-100:
+                    self.monitor.wrap[ax] += 1
+                if self.monitor.pos[ax] > ST_STEPS-100 and target_pos[ax] > ST_STEPS-100:
+                    self.monitor.wrap[ax] -= 1                        
+        except Exception as err:
+            log.error('move to target: '+str(err)})
 
 
 # TODO the following needs updating 
 # TODO FIXME we have a lot of motors._servos[ax] codes
 # -> factor these into the Motors class?
+# -> not this is a general monitor also for temperature
 # monitor for servo positions
 # we also output signal status here for convenience
+# also output temperature readings here for convenience -> this is just
+# a global "monitor", maybe move to own file
 class ServoMonitor():
     def __init__ (self, motors, increment, silent=False, state={}):
         self.next_t = time.time()
@@ -233,75 +305,5 @@ class ServoMonitor():
         self._run()
 
 
-#TODO the following should be part of Motors class
-# and be called not with a poskey, but a position already
-# (or rather a map ax:(pos,wrap) to move all axes, and a separate ax:wrap
-# to tell the motors which wrap we want to assume for them)
-
-# a key point here is to be able to move the motors, store some
-# positions of interest, and be able to return to them automatically
-# that latter part is a bit tricky, it is wrapped in its own function:
-def move_to_stored_position (poskey):
-    # to go to a defined position:
-    # 1. calculate delta in wheel mode
-    # 2. go to servo mode, set current as middle position 2048
-    # 3. move to 2048+delta
-    #    possibly first a multiple of 7 turns if delta too large
-    # 4. go to wheel mode
-    try:
-        success = monitor.update_pos()
-        if not success:
-            raise Exception("failed updating position")
-        current_pos = monitor.pos
-        target_pos = { _: POSITIONS[poskey][_][0] for _ in axes }
-        current_wrap = monitor.wrap
-        target_wrap = { _: POSITIONS[poskey][_][1] for _ in axes }
-        print('current',current_pos,current_wrap)
-        print('target ',target_pos,target_wrap)
-        for ax in axes:
-            scs_id = SERVOS[ax]['ID']
-            motorDriver.WheelMode(scs_id,False)
-            time.sleep(0.2)
-            comm, err = motorDriver.SetMiddle(scs_id)
-            if not motorDriver.success(comm, err):
-                raise Exception("failed setting motor reference pos")
-            delta_pos = target_pos[ax] - current_pos[ax]
-            delta_wrap = target_wrap[ax] - current_wrap[ax]
-            print('need delta',delta_pos,delta_wrap)
-            if 'MAX_WRAP' in SERVOS[ax] \
-                and abs(delta_wrap) > SERVOS[ax]['MAX_WRAP']:
-                log.err(f"axis {ax} should not move by {delta_wrap} turns, limiting")
-                if delta_wrap > 0:
-                    delta_wrap = SERVOS[ax]['MAX_WRAP']
-                else:
-                    delta_wrap = -SERVOS[ax]['MAX_WRAP']
-            if abs(delta_wrap) >= ST_MAX_WRAPS:
-                direction = 1
-                if delta_wrap < 0:
-                    direction = -1
-                time.sleep(0.2)
-                success = motorDriver.GotoPos(scs_id, \
-                          ST_MIDDLE + direction*ST_STEPS*(ST_MAX_WRAPS-1))
-                if not success:
-                    raise Exception("failed unwrapping")
-                comm, err = motorDriver.SetMiddle(scs_id)
-                if not motorDriver.success(comm, err):
-                    raise Exception("failed re-setting motor reference pos")
-                delta_wrap -= direction*(ST_MAX_WRAPS-1)
-            dpos = delta_pos + ST_STEPS*delta_wrap
-            success = motorDriver.GotoPos(scs_id, ST_MIDDLE+dpos)
-            if not success:
-                raise Exception("failed moving motor by delta steps")
-            time.sleep(0.2)
-            motorDriver.WheelMode(scs_id,True)
-            time.sleep(0.2)
-            monitor.update_pos()
-            monitor.wrap[ax] = target_wrap[ax]
-            if monitor.pos[ax] < 100 and target_pos[ax] > ST_STEPS-100:
-                monitor.wrap[ax] += 1
-            if monitor.pos[ax] > ST_STEPS-100 and target_pos[ax] > ST_STEPS-100:
-                monitor.wrap[ax] -= 1                        
-    except Exception as err:
-        log.err(str(err))
 
 

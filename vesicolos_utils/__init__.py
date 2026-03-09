@@ -80,6 +80,16 @@ def save_restart (prog_end, restartfile, state):
         json.dump(state, f, sort_keys=True, indent=4)
     os.sync()
 
+def make_camera_key (recordings, key, pre=''):
+    """Generate a unique key for a new camera recording, avoiding those
+    already present in `recordings`, by appending numerical values to
+    `key`, prefixed with `pre`."""
+    ckey = pre + key + '_{i:02d}'
+    i = 1
+    while ckey.format(i=i) in recordings and i<99:
+        i += 1
+    return ckey.format(i=i)
+
 
 # this is currently no longer in used but can be used instead of None
 # for led, heater when the initialization fails
