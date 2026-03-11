@@ -322,8 +322,11 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                 status['LO'] = True
 
         # cleanup, only needed if we didn't have LO right away
-        motor_controller.stop_all()
-        motor_controller.wheel_mode()
+        try:
+            motor_controller.stop_all()
+            motor_controller.wheel_mode()
+        except:
+            pass
 
 
     ## PHASE 2: WAITING AFTER LIFT OFF

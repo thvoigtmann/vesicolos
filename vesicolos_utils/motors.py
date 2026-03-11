@@ -7,22 +7,25 @@ import threading
 import ansi
 
 
-class MotorController:
+class Motors:
     ST_STEPS = 4096
     ST_MAX_WRAPS = 7
     ST_MIDDLE = 2048
+
+
+class MotorController:
     mode_names = { 0: "position", 1: "wheel", 2: "PWM", 3: "stepper" }
     def __init__ (self, device, log, axes_map={}, motorconf={}):
         self.log = log
         self.current_set_speed = {}
         try:
-            self.scan()
+            self.scan(device, axes_map, motorconf)
         except Exception as e:
-            log.error("motor init failed: "+str(e))
+            self.log.error("motor init failed: "+str(e))
             self.controller = None
             self.axes = []
             self._servos = {}
-    def scan (self):
+    def scan (self, device, axes_map, motorconf):
         self.controller = ST3215(device)
         self.log.info("Scanning for servos.")
         old_level = self.controller.logger.level
@@ -94,11 +97,12 @@ class MotorController:
         )
         # use broadcast sync_read_current_speed for return?
         for ax in self.current_set_speed:
+            self.current_set_speed[ax] = 0
             vel = self._servos[ax].sram.read_current_speed()
-            if vel is not None:
-                self.current_set_speed[ax] = vel
-            if vel != 0:
-                success = False
+            if vel is None or vel != 0:
+                #self.current_set_speed[ax] = vel
+                self.log.error("motor set speed 0 failed?"+str(vel))
+                success =False
         return success
         #return sum(map(abs,speeds))==0
     def set_speed (self, axis, vel, return_read=False):
@@ -182,7 +186,7 @@ class MotorController:
                         delta_wrap = max_wrap
                     else:
                         delta_wrap = -max_wrap
-                if abs(delta_wrap) >= ST_MAX_WRAPS:
+                if abs(delta_wrap) >= Motors.ST_MAX_WRAPS:
                     direction = 1
                     if delta_wrap < 0:
                         direction = -1
@@ -195,9 +199,9 @@ class MotorController:
                     self.set_middle(ax) # FIXME
                     #if not motorDriver.success(comm, err):
                     #    raise Exception("failed re-setting motor reference pos")
-                    delta_wrap -= direction*(ST_MAX_WRAPS-1)
-                dpos = delta_pos + ST_STEPS*delta_wrap
-                self.goto_position(ax,ST_MIDDLE+dpos)
+                    delta_wrap -= direction*(Motors.ST_MAX_WRAPS-1)
+                dpos = delta_pos + Motors.ST_STEPS*delta_wrap
+                self.goto_position(ax,Motors.ST_MIDDLE+dpos)
                 #if not success: FIXME
                 #    raise Exception("failed moving motor by delta steps")
                 time.sleep(0.2)
@@ -205,12 +209,12 @@ class MotorController:
                 time.sleep(0.2)
                 self.monitor.update_pos()
                 self.monitor.wrap[ax] = target_wrap[ax]
-                if self.monitor.pos[ax] < 100 and target_pos[ax] > ST_STEPS-100:
+                if self.monitor.pos[ax] < 100 and target_pos[ax] > Motors.ST_STEPS-100:
                     self.monitor.wrap[ax] += 1
-                if self.monitor.pos[ax] > ST_STEPS-100 and target_pos[ax] > ST_STEPS-100:
+                if self.monitor.pos[ax] > Motors.ST_STEPS-100 and target_pos[ax] > Motors.ST_STEPS-100:
                     self.monitor.wrap[ax] -= 1                        
         except Exception as err:
-            log.error('move to target: '+str(err)})
+            log.error('move to target: '+str(err))
 
 
 # TODO the following needs updating 
@@ -256,21 +260,24 @@ class ServoMonitor():
                 if success: es=''
                 else: es='EE'
                 #print(ansi.cursor.save_cursor()+ansi.cursor.goto(10,10)+es+" -- position",self.pos,self.wrap,self.vel,"--",ansi.cursor.load_cursor(0),end='')
-                print(" -- position",self.pos,self.wrap,self.vel,"--")
+                print(" -- pos,wrap",self.pos,self.wrap,"--")
+                print("  - vel,set",self.vel,self.motors.current_set_speed,"--")
                 # TODO FIXME
                 #log.info(str(status)+" T="+str(temp_sensor.temperature))
-            self.next_t += self.increment
+            while self.next_t < time.time():
+                self.next_t += self.increment
             threading.Timer(self.next_t - time.time(), self._run).start()
     def read_pos_vel (self):
         success = True
         newpos = { _:0 for _ in self.motors.axes }
         newvel = { _:0 for _ in self.motors.axes }
         for ax in self.motors.axes:
-            newpos[ax] = self.motors._servos[ax].sram.read_current_location()
-            if newpos[ax] is None:
+            try:
+                newpos[ax] = self.motors._servos[ax].sram.read_current_location()
+                newvel[ax] = self.motors._servos[ax].sram.read_current_speed()
+            except:
                 success = False
-            newvel[ax] = self.motors._servos[ax].sram.read_current_speed()
-            if newvel[ax] is None:
+            if newpos[ax] is None or newvel[ax] is None:
                 success = False
             #TODO FIXME how to read comm error?
             #success &= motorDriver.success(comm, err)

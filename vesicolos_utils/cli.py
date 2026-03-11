@@ -121,7 +121,7 @@ class CLI:
         """stop all motors"""
         res = self.motor_controller.stop_all()
         if res:
-            log.debug("motors stop")
+            self.log.debug("motors stop")
     def store_position (self, num):
         """store position"""
         self.motor_controller.stop_all()
