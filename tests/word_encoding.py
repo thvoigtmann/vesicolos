@@ -5,22 +5,23 @@ class SignedWord:
         self.word = value & 0xFFFF
         if self.word >= (1<<15) and self.signed:
             self.word = self.word - 65536
-        #if value:
-        #    self.from_bytes(*self.lo_hi_bytes())
-    def from_bytes (self, lo, hi):
+    def from_bytes (self, a, b):
         if self.bigendian:
-            self.word = (hi & 0xFF) | ((lo & 0xFF) << 8)
+            self.word = (a & 0xFF) | ((b & 0xFF) << 8)
         else:
-            self.word = (lo & 0xFF) | ((hi & 0xFF) << 8)
+            self.word = (b & 0xFF) | ((a & 0xFF) << 8)
         if self.word >= (1<<15) and self.signed:
             self.word = self.word - 65536
         return self
     def to_bytes (self):
-        a, b = self.word & 0xFF, (self.word >> 8) & 0xFF
+        lo, hi = self.word & 0xFF, (self.word >> 8) & 0xFF
         if self.bigendian:
-            return b, a
+            return lo, hi
         else:
-            return a, b
+            return hi, lo
+    def swap_endianness (self):
+        self.bigendian = not self.bigendian
+        return self
     def __int__ (self):
         return int(self.word)
 
