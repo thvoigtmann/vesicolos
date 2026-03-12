@@ -108,6 +108,9 @@ class MotorController:
     def set_speed (self, axis, vel, return_read=False):
         if axis in self.axes:
             res = self._servos[axis].sram.write_running_speed(vel)
+            # TODO FIXME try copying what WriteSpec did
+            # write [acc, 0, 0, 0, 0, lobyte(speed), hibyte(speed)]
+            # where speed is a signed word
             if res and not res['error']:
                 self.current_set_speed[axis] = vel
         read_vel = None
@@ -123,6 +126,12 @@ class MotorController:
     def goto_position (self, axis, pos, return_read=False):
         # TODO FIXME: this should be just the sram call to set the position
         # similar to set_speed
+        # the old code would use WritePosEx
+        # wrting [acc, lo(pos), hi(pos), 0, 0, lo(speed), hi(speed)]
+        # with speed set to zero I guess
+        # and negative positions were written as
+        # pos = (-pos) | (1<<15)
+        # which I do not understand yet
         pass
     def read_position (self, axis=-1):
         if axis<0:
