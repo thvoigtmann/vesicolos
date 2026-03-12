@@ -1,29 +1,87 @@
-class SignedWord:
-    def __init__ (self, value=0, signed=True, bigendian=False):
+class Word16:
+    def __init__ (self, value=0, signed=True, bigendian=False, safe_bound=False):
+        """Represent a 16bit word.
+
+        Parameters:
+        -----------
+        value : int
+            Value stored in this 16-bit word.
+        signed : bool (default: True)
+            A signed word stores [-32768,32767], an unsigned word
+            stores [0,65535].
+        bigendian : bool (default: False)
+            A big-endian representation of the word returns the sequence
+            `lo, hi` when `to_bytes()` is called.
+            A little-endian representation returns `hi, lo`.
+            Here, `lo` and `hi` are values in the range [0,255].
+        safe_bound : bool (default: False)
+            Determine how `value` is treated if it is outside the permissible
+            range. If set to `False`, the value is taken `& 0xFFFF`, so
+            that outside-range values wrap around. If set to `True`, the
+            value is gently clipped to the maximum/minimum representable
+            values in the 16-bit word (accounting for signednees).
+        """
         self.bigendian = bigendian
-        self.signed = signed
-        self.word = value & 0xFFFF
-        if self.word >= (1<<15) and self.signed:
-            self.word = self.word - 65536
-    def from_bytes (self, a, b):
-        if self.bigendian:
-            self.word = (a & 0xFF) | ((b & 0xFF) << 8)
+        self.__dict__['signed'] = signed
+        self.safe_bound = safe_bound
+        self._set_value (value)
+    def _set_value (self, value):
+        if not self.safe_bound:
+            val = value & 0xFFFF
+            if val >= (1<<15) and self.signed:
+                val = val - 65536
         else:
-            self.word = (b & 0xFF) | ((a & 0xFF) << 8)
-        if self.word >= (1<<15) and self.signed:
-            self.word = self.word - 65536
+            if self.signed:
+                val = max(min(value,(1<<15)-1),-(1<<15))
+            else:
+                val = min(value,(1<<16)-1)
+        self.__dict__['value'] = val
+    def __setattr__(self, name, value):
+        """If `w` is a `Word16`, we allow `w.value = int` to set the value,
+        representing the settings of safe clipping and signedness that
+        `w` was created with. We also allow `w.value = a, b` setting the
+        word value from a byte sequence, respecting the endianness set for
+        `w`.
+
+        If `w.signed` is assigned a new value, the stored values is converted
+        in its signedness."""
+        if name == 'value':
+            if type(value) == tuple:
+                self.from_bytes(*value)
+            else:
+                self._set_value(value)
+        elif name == 'signed':
+            self.__dict__[name] = value
+            self.from_bytes(*self.to_bytes())
+        else:
+            self.__dict__[name] = value
+    def from_bytes (self, a, b):
+        """Assign the 16-bit value from a two-byte sequence.
+        If `self` is a big-endian word, the values are `lo, hi`.
+        If `self` is a little-endian word, the values are `hi, lo`."""
+        if self.bigendian:
+            self.value = (a & 0xFF) | ((b & 0xFF) << 8)
+        else:
+            self.value = (b & 0xFF) | ((a & 0xFF) << 8)
+        if self.value >= (1<<15) and self.signed:
+            self.value = self.value - 65536
         return self
     def to_bytes (self):
-        lo, hi = self.word & 0xFF, (self.word >> 8) & 0xFF
+        """Return the value represented as a two-byte sequence.
+        If `self` is big-endian, returns `lo, hi`, else `hi, lo`."""
+        lo, hi = self.value & 0xFF, (self.value >> 8) & 0xFF
         if self.bigendian:
             return lo, hi
         else:
             return hi, lo
     def swap_endianness (self):
+        """Change the endianness of the word. Does not change the value,
+        but the interpretation of the byte sequences in `from_bytes`
+        and `to_bytes`."""
         self.bigendian = not self.bigendian
         return self
     def __int__ (self):
-        return int(self.word)
+        return int(self.value)
 
 def st3215_encode (word: int, signed: bool = True) -> tuple[int, int]:
     if word < 0 and not signed:
@@ -42,12 +100,12 @@ def st3215_decode_signed (lo: int, hi: int) -> int:
         return word - 65536
     return word 
 
-pos = -100
+#pos = -100
 
-print (SignedWord(pos).to_bytes())
-print (st3215_encode(pos))
-print (int(SignedWord(pos)))
-print (int(SignedWord().from_bytes(156,255)))
-print (int(SignedWord(65535,signed=False)))
-print (st3215_decode_signed(*SignedWord(-32769).to_bytes()))
-print (st3215_decode_signed(*SignedWord(pos).to_bytes()))
+#print (Word16(pos).to_bytes())
+#print (st3215_encode(pos))
+#print (int(Word16(pos)))
+#print (int(Word16(bigendian=True).from_bytes(156,255)))
+#print (int(Word16(65535,signed=False)))
+#print (st3215_decode_signed(*Word16(-32769,bigendian=True,safe_bound=True).to_bytes()))
+#print (st3215_decode_signed(*Word16(pos,bigendian=True).to_bytes()))
