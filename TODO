@@ -126,3 +126,11 @@ baud rate:
 
 operating mode: 0 pos control, 1 wheel (const speed), 2 pwm open-loop, 3 stepper servo
 
+
+
+NEW
+
+jd wants to rebuild a v2 hardware with stepper motors controlled by tmc2209
+for something that comes close, see here:
+https://learn.adafruit.com/motorized-camera-slider-2-axis/code-the-slider
+doenload the project bundle and pull the adafruit_tmc2209.py from there
