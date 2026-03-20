@@ -7,8 +7,83 @@ from . import Word16
 
 import ansi
 
+class myServo(Servo):
+    MODE = 0x21
+    mode_names = { 0: "position", 1: "wheel", 2: "PWM", 3: "stepper" }
+    MODE_SERVO = 0
+    MODE_WHEEL = 1
+    GOAL_SPEED = 0x2E
+    PRESENT_POSITION = 0x38
+    PRESENT_SPEED = 0x3A
+    PRESENT_VOLTAGE = 0x3E
+    PRESENT_TEMPERATURE = 0x3F
+    MOVING = 0x42
+    PRESENT_CURRENT = 0x45
+    def WriteRunningSpeed(self, vel):
+        lo, hi = Word16(vel,bigendian=True,bitsigned=True,safe_bound=True).to_bytes()
+        return self._write_memory(self.GOAL_SPEED, [lo, hi])
+    def SyncWriteRunningSpeed(self, servo_data: dict[int, int]) -> None:
+        formatted_data: dict[int, list[int]] = {}
+        for servo_id, value in servo_data.items():
+            lo, hi = Word16(value,bigendian=True,bitsigned=True,safe_bound=True).to_bytes()
+            formatted_data[servo_id] = [lo, hi]
+        return self._sync_write(self.GOAL_SPEED, 2, formatted_data) # type: ognore
+    def ReadPresentSpeed(self):
+        b = self._read_memory(self.PRESENT_SPEED, 2)
+        if b is not None:
+            return int(Word16(b, bitsigned=True))
+        return None
+    def SyncReadPresentSpeed(self, servo_ids):
+        responses: dict[int, dict[str, Any] | None]= self._sync_read(
+                self.PRESENT_SPEED, 2, servo_ids
+        )
+        print("SSS",responses)
+        results: dict[int, int | None] = {}
+        for servo_id, response in responses.items():
+            if response and isinstance(response,dict) and response.get("parameters"):
+                data: list[int] | bytes = response["parameters"]
+                results[servo_id] = int(Word16(0, bitsigned=True, bigendian=True).from_bytes(data[0],data[1]))
+            else:
+                results[servo_id] = None
+        return results
+    def ReadPresentPosition(self):
+        b = self._read_memory(self.PRESENT_POSITION, 2)
+        if b is not None:
+            return int(b)
+        return None
+    def ReadPresentVoltage(self):
+        """Return current voltage in V."""
+        b = self._read_memory(self.PRESENT_VOLTAGE, 1)
+        if b is not None:
+            return int(b)/10.
+        return None
+    def ReadPresentTemperature(self):
+        b = self._read_memory(self.PRESENT_TEMPERATURE, 1)
+        if b is not None:
+            return int(b)
+        return None
+    def isMoving(self):
+        b = self._read_memory(self.MOVING, 1)
+        if b is not None:
+            return b>0
+        return None
+    def getOperatingMode(self):
+        b = self._read_memory(self.MODE, 1)
+        if b is not None:
+            return self.mode_names.get(int(b),'UNKNOWN')
+        return None
+    def setWheelMode(self, wheel=True):
+        mode = self.MODE_WHEEL if wheel else self.MODE_SERVO
+        return self._write_memory(self.MODE, mode)
+
+
 
 class myST3215(ST3215):
+    def __init__(self, port: str, baudrate: int = 1000000,
+                 read_timeout: float = 0.002) -> None:
+        super().__init__(port, baudrate, read_timeout)
+        self.broadcast = myServo(self, 254)
+
     def list_servos(self, max_id: int = 253) -> list[int]:
         """
         Scan for connected servos by pinging all possible IDs (0-253)
@@ -24,6 +99,20 @@ class myST3215(ST3215):
             except ServoNotRespondingError:
                 continue
         return found
+    def wrap_servo(self, servo_id: int) -> myServo:
+        """
+        Create a Servo instance for the given servo ID after verifying it responds to ping.
+        Returns:
+            Servo: An instance of the myServo class for the given ID.
+        Raises:
+            ServoNotRespondingError: If the servo does not respond to ping.
+        """
+        parsed = self.ping(servo_id)
+        if not parsed or parsed.get("error") != 0:
+            raise ServoNotRespondingError(
+                f"Servo ID {servo_id} did not respond to ping."
+            )
+        return myServo(self, servo_id)
 
 
 class Motors:
@@ -33,7 +122,6 @@ class Motors:
 
 
 class MotorController:
-    mode_names = { 0: "position", 1: "wheel", 2: "PWM", 3: "stepper" }
     def __init__ (self, device, log, axes_map={}, motorconf={}, max_id=253):
         self.log = log
         self.current_set_speed = {}
@@ -65,12 +153,12 @@ class MotorController:
                 else:
                     axis = None
                     infostr = ''
-                self.log.info(f"{infostr}SERVO ID {servo_id} pos {servo.sram.read_current_location()} mode {self.mode_names.get(servo.eeprom.read_operating_mode(),'UNKNOWN')}")
-                self.log.debug(f"SERVO ID {servo_id} U={servo.sram.read_current_voltage() / 10:.1f}V, T={servo.sram.read_current_temperature()}°C")
+                self.log.info(f"{infostr}SERVO ID {servo_id} pos {servo.ReadPresentPosition()} mode {servo.getOperatingMode()}")
+                self.log.debug(f"SERVO ID {servo_id} U={servo.ReadPresentVoltage():.1f}V, T={servo.ReadPresentTemperature()}°C")
                 self._servos[servo_id] = servo
                 if axis:
                     self._servos[axis] = servo
-                    self.current_set_speed[axis] = servo.sram.read_current_speed()
+                    self.current_set_speed[axis] = servo.ReadPresentSpeed()
             found_all_axes = True
             for ax in sorted(list(set(axes_map.values()))):
                 if ax in self._servos:
@@ -111,13 +199,13 @@ class MotorController:
         """Stop all servos"""
         if not self.controller: return False
         success = True
-        self.controller.broadcast.sram.sync_write_running_speed(
+        self.controller.broadcast.SyncWriteRunningSpeed(
                 {servo.id: 0 for servo in self._servos.values()}
         )
         # use broadcast sync_read_current_speed for return?
         for ax in self.current_set_speed:
             self.current_set_speed[ax] = 0
-            vel = self._servos[ax].sram.read_current_speed()
+            vel = self._servos[ax].ReadPresentSpeed()
             if vel is None or vel != 0:
                 #self.current_set_speed[ax] = vel
                 self.log.error("motor set speed 0 failed?"+str(vel))
@@ -126,29 +214,22 @@ class MotorController:
         #return sum(map(abs,speeds))==0
     def set_speed (self, axis, vel, return_read=False):
         if axis in self.axes:
-            # the code in the driver seems to not account for the
-            # fact that our servos want integers with a sign bit
-            #res = self._servos[axis].sram.write_running_speed(vel)
-            lo, hi = Word16(vel,bigendian=True,bitsigned=True,safe_bound=True).to_bytes()
-            res = self._servos[axis]._write_memory(0x2E, [lo, hi])
+            res = self._servos[axis].WriteRunningSpeed(vel)
             if res and not res['error']:
                 self.current_set_speed[axis] = vel
         read_vel = None
         if return_read:
-            # same problem with signed words in the driver
-            read_vel = int(Word16(self._servos[axis]._read_memory(0x3A, 2),bitsigned=True))
-            #read_vel = self._servos[axis].sram.read_current_speed()
+            read_vel = self._servos[axis].ReadPresentSpeed()
         return res, read_vel
     def get_speed (self, axis=''):
         if not axis:
             # TODO use broadcast
             vel = {}
             for ax in self.axes:
-                vel[ax] = int(Word16(self._servos[ax]._read_memory(0x3A, 2),bitsigned=True))
+                vel[ax] = self._servos[ax].ReadPresentSpeed()
         elif axis in self.axes:
             # same problem with signed words in the driver
-            vel = int(Word16(self._servos[axis]._read_memory(0x3A, 2),bitsigned=True))
-            #vel = self._servos[axis].sram.read_current_speed()
+            vel = self._servos[axis].ReadPresentSpeed()
             return vel
         return None
     # TODO
@@ -167,10 +248,10 @@ class MotorController:
             # TODO should use broadcast
             pos = {}
             for ax in self.axes:
-                pos[ax] = self._servos[ax].sram.read_current_location()
+                pos[ax] = self._servos[ax].ReadPresentPosition()
             return pos
         elif axis in self.axes:
-            pos = self._servos[axis].sram.read_current_location()
+            pos = self._servos[axis].ReadPresentPosition()
             return pos
         return None
     def wheel_mode (self, axis='', wheel=True):
@@ -178,10 +259,11 @@ class MotorController:
         If `axis==-1` (default), apply to all axes."""
         mode = 1 if wheel else 0
         if not axis:
+            # TODO broadcast
             for ax in self.axes:
-                self._servos[ax].eeprom.write_operating_mode(mode)
+                self._servos[ax].setWheelMode(wheel)
         elif axis in self.axes:
-            self._servos[axis].eeprom.write_operating_mode(mode)
+            self._servos[axis].setWheelMode(wheel)
     # TODO FIXME
     def set_middle (self, axis):
         pass
@@ -300,6 +382,10 @@ class ServoMonitor():
                 #print(ansi.cursor.save_cursor()+ansi.cursor.goto(10,10)+es+" -- position",self.pos,self.wrap,self.vel,"--",ansi.cursor.load_cursor(0),end='')
                 print(" -- pos,wrap",self.pos,self.wrap,"--")
                 print("  - vel,set",self.vel,self.motors.current_set_speed,"--")
+                ids=list(set([servo.id for servo in self.motors._servos.values()]))
+                ids=[9,1]
+                print("  - ids",ids)
+                print("  - syncvel",self.motors.controller.broadcast.SyncReadPresentSpeed(ids))
                 # TODO FIXME
                 #log.info(str(status)+" T="+str(temp_sensor.temperature))
             while self.next_t < time.time():

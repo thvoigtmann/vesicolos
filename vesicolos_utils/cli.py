@@ -1,4 +1,4 @@
-import logging
+import logging, time
 from vesicolos_utils import getkey, Keys, make_camera_key
 
 
@@ -187,7 +187,7 @@ class CLI:
         print("rvel",rvel)
         print("res",res)
         self.monitor.start()
-    def query_position(self, key):
+    def query_position(self):
         """query motor positions"""
         self.motor_controller.stop_all()
         wheelpos = self.motor_controller.read_position()

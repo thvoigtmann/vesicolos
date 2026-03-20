@@ -5,8 +5,9 @@ hardware
 - add m.2 ssd for fast video writing
 
 new motor driver software
-- operating_mode calls should be part of driver?
-  - in general, why does the servo class not wrap the sram/eeprom calls?
+- test the SyncRead code, this should be better, but currently only the
+  first servo responds, check the documents again and see what the code
+  sends and if this is correct
 - torque limiting not yet coded
 - make a requirements.txt with pip-chill
 
