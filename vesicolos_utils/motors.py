@@ -1,4 +1,4 @@
-from python_st3215 import ST3215, Servo, ServoNotRespondingError
+from python_st3215 import ST3215, Servo, ServoNotRespondingError, Instruction
 import logging
 import time
 import threading
@@ -113,6 +113,46 @@ class myST3215(ST3215):
                 f"Servo ID {servo_id} did not respond to ping."
             )
         return myServo(self, servo_id)
+    # the original implementation is buggy
+    def _sync_read(self, address: int, data_length: int,
+                   servo_ids: Sequence[int]) -> dict[int,Optional[dict[str,object]]]:
+        self.logger.debug(
+                f"SYNC READ from address {address:#02x}, length {data_length} "
+                f"for servos {servo_ids}"
+        )
+        parameters = [address, data_length, *servo_ids]
+        packet = self.send_instruction(0xFE, Instruction.SYNC_READ, parameters)
+        responses: dict[int, Optional[dict[str, object]]] = {}
+        rxpacket = self.read_response(packet)
+        bytelist = iter(rxpacket)
+        response = {}
+        try:
+            while next(bytelist)==0xFF and next(bytelist)==0xFF:
+                scs_id = next(bytelist)
+                retlen = next(bytelist)
+                if retlen != data_length+2:
+                    response[scs_id] = None
+                    #return None, "COMM_RX_CORRUPT"
+                err = next(bytelist)
+                data = [next(bytelist) for _ in range(data_length)]
+                crc = ~(sum(data) + retlen + scs_id + err) & 0xFF
+                rcrc = next(bytelist)
+                #if crc != rcrc:
+                #    response[scs_id] = None
+                response[scs_id] = data
+                response[scs_id] = {
+                        "header": [0xFF, 0xFF],
+                        "id": scs_id,
+                        "length": retlen,
+                        "error": err,
+                        "parameters": data,
+                        "received_checksum": rcrc,
+                        "calculated_checksum": crc,
+                        "checksum_valid": (rcrc==crc)
+                }
+        except StopIteration:
+            pass
+        return response
 
 
 class Motors:
