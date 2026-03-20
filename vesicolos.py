@@ -258,6 +258,10 @@ prog_end = threading.Event()
 
 
 with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, motorconf=SERVOS) as motor_controller:
+
+    motor_controller.stop_all()
+    motor_controller.wheel_mode()
+
     # TODO FIXME not ServoMonitor, this is a general monitor
     # give it also the temperature sensor
     monitor = vm.ServoMonitor(motor_controller,increment=MONITOR_INTERVAL,state=STATE_VARS)
@@ -266,12 +270,11 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
     if not monitor.state_valid:
         # the monitor will have already warned in the log file
         # we invalidate any stored positions
+        log.error("restart file ignored, motor pos mismatch")
         STATE_VARS["user.positions"] = {}
 
     threading.Thread(target=save_restart,args=[prog_end,RESTARTFILE,STATE_VARS]).start()
 
-    motor_controller.stop_all()
-    motor_controller.wheel_mode()
     for ax in motor_controller.axes:
         # TODO FIXME
         print("max torque",ax,motor_controller._servos[ax].eeprom.read_max_torque())

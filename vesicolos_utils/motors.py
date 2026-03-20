@@ -3,6 +3,7 @@ import logging
 import time
 import threading
 
+from . import Word16
 
 import ansi
 
@@ -107,7 +108,12 @@ class MotorController:
         #return sum(map(abs,speeds))==0
     def set_speed (self, axis, vel, return_read=False):
         if axis in self.axes:
-            res = self._servos[axis].sram.write_running_speed(vel)
+            #self._servos[axis].sram.write_acceleration(0)
+            #self._servos[axis].sram.write_target_location(0)
+            #self._servos[axis].sram.write_runtime(0)
+            #res = self._servos[axis].sram.write_running_speed(vel)
+            lo, hi = Word16(vel,bigendian=True,safe_bound=True).to_bytes()
+            res = self._servos[axis]._write_memory(0x2E, [low, high])
             # TODO FIXME try copying what WriteSpec did
             # write [acc, 0, 0, 0, 0, lobyte(speed), hibyte(speed)]
             # where speed is a signed word

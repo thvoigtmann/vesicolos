@@ -161,7 +161,7 @@ class CLI:
         """goto a specific position (servo mode)"""
         self.motor_controller.stop_all()
         ax = input('axis? ').upper()
-        if not ax in axes:
+        if not ax in self.motor_controller.axes:
             print ("axis not found")
             return
         posstr = input('position (servo mode)? ')
@@ -175,6 +175,24 @@ class CLI:
         self.motor_controller.goto_position(ax,pos)
         time.sleep(0.2)
         self.motor_controller.wheel_mode(ax,True)
+    def set_velocity (self):
+        """set the velocity of a motor by hand"""
+        self.motor_controller.stop_all()
+        self.monitor.stop()
+        ax = input('axis ?').upper()
+        if not ax in self.motor_controller.axes:
+            print ("axis not found")
+            return
+        velstr = input('velocity? ')
+        try:
+            vel = int(velstr)
+        except ValueError:
+            print ("illegal input")
+            return
+        res, rvel = self.motor_controller.set_speed(ax, vel, return_read=True)
+        print("rvel",rvel)
+        print("res",res)
+        self.monitor.start()
     def query_position(self, key):
         """query motor positions"""
         self.motor_controller.stop_all()
@@ -269,6 +287,7 @@ keymap = {
     Keys.HOME: (CLI.recall_position,0),
     ord('q'): (CLI.query_position,),
     ord('g'): (CLI.goto_position,),
+    ord('v'): (CLI.set_velocity,),
     ord('l'): (CLI.toggle_led,),
     ord('h'): (CLI.toggle_heater,),
     ord('t'): (CLI.enter_temperature_ramp,),
