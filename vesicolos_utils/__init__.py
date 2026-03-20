@@ -1,4 +1,4 @@
-import time, os, sys
+import time, os, sys, glob, re
 import logging
 import json
 
@@ -79,6 +79,54 @@ def save_restart (prog_end, restartfile, state):
     with open(restartfile, 'w') as f:
         json.dump(state, f, sort_keys=True, indent=4)
     os.sync()
+
+
+def load_flight_config (confpath, log):
+    """Load flight configuration json file. Either take the one given
+    on the command line, or take the newest readable one from the
+    `confpath` directory."""
+    if len(sys.argv)>1:
+        def conftry(confbase):
+            for ctry in [confbase,confbase+'.json',
+                         os.path.join(confpath,confbase),
+                         os.path.join(confpath,confbase+'.json')]:
+                yield ctry
+        conf = []
+        for c in conftry(sys.argv[1]):
+            if os.path.isfile(c):
+                conf = [c]
+                break
+    else:
+        conf = sorted(glob.glob(os.path.join(confpath,'*.json')),
+                      key=lambda k: -os.path.getmtime(k))
+    data = {}
+    for cfile in conf:
+        try:
+            with open(cfile, 'r') as f:
+                data = json.load(f)
+                data['config'] = cfile
+            break
+        except Exception as e:
+            print(e)
+    if not data:
+        log.warn('no flight config found, using defaults')
+    else:
+        log.info(f'flight config {cfile} loaded')
+        #for key in data:
+        #    log.info(f'  {key} = {data[key]}')
+    return data
+
+
+def detect_rpi_model ():
+    try:
+        with open ('/proc/device-tree/model') as f:
+            model = f.read()
+        m = re.search(r'Pi *([345])', model)
+        if m:
+            return m[1]
+    except:
+        pass
+    return None
 
 def make_camera_key (recordings, key, pre=''):
     """Generate a unique key for a new camera recording, avoiding those

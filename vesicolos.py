@@ -25,7 +25,7 @@ sys.path.append('python-st3215/src')
 sys.path.append('.')
 from python_st3215 import ST3215
 from vesicolos_utils import getkey,Keys,kill_proc_by_name,DummyGPIO
-from vesicolos_utils import logSetup, load_restart, save_restart
+from vesicolos_utils import logSetup, load_restart, save_restart, load_flight_config, detect_rpi_model
 import vesicolos_utils.motors as vm
 import vesicolos_utils.temperature as vt
 from vesicolos_utils.cli import CLI, keymap
@@ -38,13 +38,10 @@ from vesicolos_utils.cli import CLI, keymap
 #
 
 # timeout settings for the expected flight trajectory
-# these defaults are adapted to the MAPHEUS-16 flight and the
-# MOSAIC timeline of that flight as plausible defaults
-# the values can be overridden by a json configuration file
-# TODO FIXME later on read a json with those values!
-# read from flight_configuration.json ?
-# or maybe implement cmdline handling, allow to call code like
-# `python3 vesicolos.py HCD` or `python3 vesicolos.py TCD` or ... testing
+# the defaults hard-coded here came from the MAPHEUS-16 flight
+# and the MOSAIC timeline of that flight
+# they will be overwritten if json files are found in CONFPATH
+CONFPATH = 'flight_config'
 SOE_TIMEOUT_DEFAULT = 67       # timeout to start if no mug signal comes
 EXP_TIMEOUT_DEFAULT = 400      # timeout for duration of experiment
 MUG_STICKY = True              # if true, keep mug status ON once set
@@ -123,6 +120,7 @@ LOGFILE = 'vesicolos.log'
 TEMPERATURE_LOG = 'temperature.log'
 CAMFILE = 'capture-{pos}.h264' # could use {frame:06d} or something
 PTSFILE = 'capture-{pos}-pts.txt'
+# name of rpicam process to kill if the user started it separately
 RPICAM_PROCESS = 'rpicam-vid'
 
 
@@ -213,7 +211,11 @@ except Exception as e:
 #temperature_log = Logger(temperature_logfile)
 
 # set UART device depending on raspberry model or environment variables
-rpi_model = os.environ.get("RASPI_MODEL","_default_")
+rpi_model = os.environ.get("RASPI_MODEL",None)
+if not rpi_model:
+    rpi_model = detect_rpi_model ()
+if not rpi_model:
+    rpi_model = '_default_'
 log.info(f"assuming Raspberry model {rpi_model}")
 st_device = ST_DEVICE.get(rpi_model,ST_DEVICE['_default_'])
 st_device = os.environ.get("ST_DEVICE",st_device)
@@ -247,20 +249,21 @@ def wait_for_lo (stop_event):
 camera = None
 motor_timeout = MOTOR_TIMEOUT
 
-# load restart file
-# this is supposed to catch power cycles, in particular allowing for
-# the case where some positions to search are stored ahead of
-# integration into the rocket, or if lift-off causes a power cycle
-# TODO FIXME if we crash while the motors are moving, what happens?
-load_restart (STATE_VARS, RESTARTFILE, log)
 
 prog_end = threading.Event()
 
-
 with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, motorconf=SERVOS) as motor_controller:
 
+    # we try to do this as early as possible: stop motors if they are moving
     motor_controller.stop_all()
     motor_controller.wheel_mode()
+
+    # load restart file
+    # this is supposed to catch power cycles, in particular allowing for
+    # the case where some positions to search are stored ahead of
+    # integration into the rocket, or if lift-off causes a power cycle
+    # TODO FIXME if we crash while the motors are moving, what happens?
+    load_restart (STATE_VARS, RESTARTFILE, log)
 
     # TODO FIXME not ServoMonitor, this is a general monitor
     # give it also the temperature sensor
@@ -272,6 +275,13 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         # we invalidate any stored positions
         log.error("restart file ignored, motor pos mismatch")
         STATE_VARS["user.positions"] = {}
+
+    # load flight configuration
+    fc = load_flight_config (CONFPATH, log)
+    SOE_TIMEOUT = fc.get('SOE_TIMEOUT', SOE_TIMEOUT_DEFAULT)
+    EXP_TIMEOUT = fc.get('EXP_TIMEOUT', EXP_TIMEOUT_DEFAULT)
+    log.info(f"SOE TIMEOUT {SOE_TIMEOUT}")
+    log.info(f"EXP TIMEOUT {EXP_TIMEOUT}")
 
     threading.Thread(target=save_restart,args=[prog_end,RESTARTFILE,STATE_VARS]).start()
 

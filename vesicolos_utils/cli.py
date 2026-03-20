@@ -3,12 +3,6 @@ from vesicolos_utils import getkey, Keys, make_camera_key
 
 
 
-
-# TODO: CLI stores the positions, should invoke a thread
-# to continuously save them, and then provide a way to return them
-#
-# TODO: get rid of explicit monitor, make this part of motor_controller
-#
 # in principle, a GUI could derive from this class
 class CLI:
     def __init__ (self, motor_controller=None, monitor=None, led=None, heater=None, keymap={}, movement_map={}, state={}):
