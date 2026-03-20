@@ -105,6 +105,15 @@ The file in `autostart` needs to be copied into `~/.config/autostart/`.
 This should make the vesicolos python program automatically start once
 the LXDE desktop is up.
 
+The driver for the ST3020 servos is included here, although there are
+variants:
+- the original WaveShare python code, somewhat incomplete and with bugs.
+- the currently used https://github.com/alessiodam/python-st3215 which
+  has some bugs, since it treats negative numbers incorrectly(?),
+  and we work around those
+- the https://github.com/Mickael-Roger/python-st3215 which looks correct
+  but is less nicely typed etc as the above one
+
 # Code Options
 
 The `vesciolos.py` uses a number of hard-coded defaults that can be

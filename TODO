@@ -5,14 +5,9 @@ hardware
 - add m.2 ssd for fast video writing
 
 new motor driver software
-- read_current_speed does not properly return negative values!?
-  - possible also the write_ method has the same problem?
-  - check github.com/Mickael-Roger/python-st3215 is different code?
 - operating_mode calls should be part of driver?
   - in general, why does the servo class not wrap the sram/eeprom calls?
-- all SERVOS[ax]['current_speed'] should probably be discarded?
 - torque limiting not yet coded
-- ST_MAX_ID not used: should patch servo driver code
 - make a requirements.txt with pip-chill
 
 software (ideas from last flight)
@@ -45,3 +40,5 @@ jd wants to rebuild a v2 hardware with stepper motors controlled by tmc2209
 for something that comes close, see here:
 https://learn.adafruit.com/motorized-camera-slider-2-axis/code-the-slider
 doenload the project bundle and pull the adafruit_tmc2209.py from there
+but jd does not want to use the adafruit driver because it does not
+have a safeguard implemented
