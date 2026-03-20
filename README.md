@@ -120,3 +120,16 @@ The code respects the following environment variables:
 | `DEBUG`        | debugging on             | increases log verbosity  |
 | `NO_GPIO`      | don't import GPIO lib    | for testing on non-RPi   |
 
+The code also looks for a JSON configuration file in `flight_config`
+in order to set per-flight defaults. The first command-line argument, if
+given, can explicitly specify the name of a JSON file, e.g.
+`vesicolos.py M16_HCD`.
+If no file name is given, the file in `flight_config` with the latest
+modification-time stamp will be used. Currently, we set
+
+| config variable | function                                   |
+|-----------------|--------------------------------------------|
+| `SOE_TIMEOUT`   | SOE timeout in seconds, if no signal comes |
+| `EXP_TIMEOUT`   | EXP timeout in seconds, if no signal comes |
+
+
