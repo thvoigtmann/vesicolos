@@ -110,8 +110,15 @@ class DummyGPIO(object):
         pass
 
 
+# the following was developed for testing arithmetic with different
+# signed words, as there was confusion how to represent negative numbers
+# in the version of servos/driver we use, they use 15 significant bits
+# and the leading bit is a sign bit, and words are represented in bigendian
+# order - in the end, the code will use that directly, this class is
+# just if you want to play it safe and understandable
+
 class Word16:
-    def __init__ (self, value=0, signed=True, bigendian=False, safe_bound=False):
+    def __init__ (self, value=0, signed=True, bitsigned=False, bigendian=False, safe_bound=False):
         """Represent a 16bit word.
 
         Parameters:
@@ -121,6 +128,15 @@ class Word16:
         signed : bool (default: True)
             A signed word stores [-32768,32767], an unsigned word
             stores [0,65535].
+        bitsigned : bool (default: False)
+            A word with a sign bit, stores the sign in the most significant
+            bit, accepts ranges [-32767,32767] with ambiguity at zero.
+            Mutually exclusive with `signed`. If `bitsigned` is set to
+            `True`, this takes precedence.
+            Note that `bitsigned` and assignment with negative numbers
+            gives strange results on machines that natively use the standard
+            signed-word convention; in that case, it might be advisable to
+            set `safe_bound=True` as well.
         bigendian : bool (default: False)
             A big-endian representation of the word returns the sequence
             `lo, hi` when `to_bytes()` is called.
@@ -134,7 +150,10 @@ class Word16:
             values in the 16-bit word (accounting for signednees).
         """
         self.bigendian = bigendian
+        if bitsigned:
+            signed = False
         self.__dict__['signed'] = signed
+        self.__dict__['bitsigned'] = bitsigned
         self.safe_bound = safe_bound
         self._set_value (value)
     def _set_value (self, value):
@@ -142,9 +161,13 @@ class Word16:
             val = value & 0xFFFF
             if val >= (1<<15) and self.signed:
                 val = val - 65536
+            if self.bitsigned and (val & 0x8000):
+                val = -(val & 0x7FFF)
         else:
             if self.signed:
                 val = max(min(value,(1<<15)-1),-(1<<15))
+            elif self.bitsigned:
+                val = max(min(value,(1<<15)-1),1-(1<<15))
             else:
                 val = min(value,(1<<16)-1)
         self.__dict__['value'] = val
@@ -164,6 +187,13 @@ class Word16:
                 self._set_value(value)
         elif name == 'signed':
             self.__dict__[name] = value
+            if self.signed:
+                self.__dict__['bitsigned'] = False
+            self.from_bytes(*self.to_bytes())
+        elif name == 'bitsigned':
+            self.__dict__[name] = value
+            if self.bitsigned:
+                self.__dict__['signed'] = False
             self.from_bytes(*self.to_bytes())
         else:
             self.__dict__[name] = value
@@ -177,11 +207,18 @@ class Word16:
             self.value = (b & 0xFF) | ((a & 0xFF) << 8)
         if self.value >= (1<<15) and self.signed:
             self.value = self.value - 65536
+        if self.bitsigned and (self.value & 0x8000):
+            self.value = -(self.value & 0x7FFF)
         return self
     def to_bytes (self):
         """Return the value represented as a two-byte sequence.
         If `self` is big-endian, returns `lo, hi`, else `hi, lo`."""
-        lo, hi = self.value & 0xFF, (self.value >> 8) & 0xFF
+        if not self.bitsigned:
+            lo, hi = self.value & 0xFF, (self.value >> 8) & 0xFF
+        else:
+            lo, hi = abs(self.value) & 0xFF, (abs(self.value) >> 8) & 0x7F
+            if self.value < 0:
+                hi |= 0x80
         if self.bigendian:
             return lo, hi
         else:

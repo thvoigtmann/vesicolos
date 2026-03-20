@@ -108,24 +108,29 @@ class MotorController:
         #return sum(map(abs,speeds))==0
     def set_speed (self, axis, vel, return_read=False):
         if axis in self.axes:
-            #self._servos[axis].sram.write_acceleration(0)
-            #self._servos[axis].sram.write_target_location(0)
-            #self._servos[axis].sram.write_runtime(0)
+            # the code in the driver seems to not account for the
+            # fact that our servos want integers with a sign bit
             #res = self._servos[axis].sram.write_running_speed(vel)
-            lo, hi = Word16(vel,bigendian=True,safe_bound=True).to_bytes()
-            res = self._servos[axis]._write_memory(0x2E, [low, high])
-            # TODO FIXME try copying what WriteSpec did
-            # write [acc, 0, 0, 0, 0, lobyte(speed), hibyte(speed)]
-            # where speed is a signed word
+            lo, hi = Word16(vel,bigendian=True,bitsigned=True,safe_bound=True).to_bytes()
+            res = self._servos[axis]._write_memory(0x2E, [lo, hi])
             if res and not res['error']:
                 self.current_set_speed[axis] = vel
         read_vel = None
         if return_read:
-            read_vel = self._servos[axis].sram.read_current_speed()
+            # same problem with signed words in the driver
+            read_vel = int(Word16(self._servos[axis]._read_memory(0x3A, 2),bitsigned=True))
+            #read_vel = self._servos[axis].sram.read_current_speed()
         return res, read_vel
-    def get_speed (self, axis):
-        if axis in self.axes:
-            vel = self._servos[axis].sram.read_current_speed()
+    def get_speed (self, axis=''):
+        if not axis:
+            # TODO use broadcast
+            vel = {}
+            for ax in self.axes:
+                vel[ax] = int(Word16(self._servos[ax]._read_memory(0x3A, 2),bitsigned=True))
+        elif axis in self.axes:
+            # same problem with signed words in the driver
+            vel = int(Word16(self._servos[axis]._read_memory(0x3A, 2),bitsigned=True))
+            #vel = self._servos[axis].sram.read_current_speed()
             return vel
         return None
     # TODO
@@ -139,8 +144,9 @@ class MotorController:
         # pos = (-pos) | (1<<15)
         # which I do not understand yet
         pass
-    def read_position (self, axis=-1):
-        if axis<0:
+    def read_position (self, axis=''):
+        if not axis:
+            # TODO should use broadcast
             pos = {}
             for ax in self.axes:
                 pos[ax] = self._servos[ax].sram.read_current_location()
@@ -148,11 +154,12 @@ class MotorController:
         elif axis in self.axes:
             pos = self._servos[axis].sram.read_current_location()
             return pos
-    def wheel_mode (self, axis=-1, wheel=True):
+        return None
+    def wheel_mode (self, axis='', wheel=True):
         """Set motor specified by `axis` to wheel mode.
         If `axis==-1` (default), apply to all axes."""
         mode = 1 if wheel else 0
-        if axis<0:
+        if not axis:
             for ax in self.axes:
                 self._servos[ax].eeprom.write_operating_mode(mode)
         elif axis in self.axes:
@@ -233,9 +240,7 @@ class MotorController:
 
 
 # TODO the following needs updating 
-# TODO FIXME we have a lot of motors._servos[ax] codes
-# -> factor these into the Motors class?
-# -> not this is a general monitor also for temperature
+# this is a general monitor also for temperature
 # monitor for servo positions
 # we also output signal status here for convenience
 # also output temperature readings here for convenience -> this is just
@@ -288,8 +293,8 @@ class ServoMonitor():
         newvel = { _:0 for _ in self.motors.axes }
         for ax in self.motors.axes:
             try:
-                newpos[ax] = self.motors._servos[ax].sram.read_current_location()
-                newvel[ax] = self.motors._servos[ax].sram.read_current_speed()
+                newpos[ax] = self.motors.read_position(ax)
+                newvel[ax] = self.motors.get_speed(ax)
             except:
                 success = False
             if newpos[ax] is None or newvel[ax] is None:

@@ -198,11 +198,11 @@ class CLI:
         self.motor_controller.stop_all()
         wheelpos = self.motor_controller.read_position()
         time.sleep(0.2)
-        self.motor_controller.wheel_mode(axis=-1,wheel=False)
+        self.motor_controller.wheel_mode(axis='',wheel=False)
         time.sleep(0.2)
         servopos = self.motor_controller.read_position()
         time.sleep(0.2)
-        self.motor_controller.wheel_mode(axis=-1,wheel=True)
+        self.motor_controller.wheel_mode(axis='',wheel=True)
         print ("current position (wheel)",wheelpos)
         print ("current position (servo)",servopos)
     def toggle_led(self):
