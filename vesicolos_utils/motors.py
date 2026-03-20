@@ -1,4 +1,4 @@
-from python_st3215 import ST3215
+from python_st3215 import ST3215, Servo, ServoNotRespondingError
 import logging
 import time
 import threading
@@ -6,6 +6,24 @@ import threading
 from . import Word16
 
 import ansi
+
+
+class myST3215(ST3215):
+    def list_servos(self, max_id: int = 253) -> list[int]:
+        """
+        Scan for connected servos by pinging all possible IDs (0-253)
+        or up to the given `max_id`.
+        Returns:
+            List of servo IDs that responded to the ping.
+        """
+        found = []
+        for servo_id in range(0, min(max_id+1,254)):
+            try:
+                self.wrap_servo(servo_id)
+                found.append(servo_id)
+            except ServoNotRespondingError:
+                continue
+        return found
 
 
 class Motors:
@@ -16,24 +34,24 @@ class Motors:
 
 class MotorController:
     mode_names = { 0: "position", 1: "wheel", 2: "PWM", 3: "stepper" }
-    def __init__ (self, device, log, axes_map={}, motorconf={}):
+    def __init__ (self, device, log, axes_map={}, motorconf={}, max_id=253):
         self.log = log
         self.current_set_speed = {}
         try:
-            self.scan(device, axes_map, motorconf)
+            self.scan(device, axes_map, motorconf, max_id)
         except Exception as e:
             self.log.error("motor init failed: "+str(e))
             self.controller = None
             self.axes = []
             self._servos = {}
-    def scan (self, device, axes_map, motorconf):
-        self.controller = ST3215(device)
+    def scan (self, device, axes_map, motorconf, max_id):
+        self.controller = myST3215(device)
         self.log.info("Scanning for servos.")
         old_level = self.controller.logger.level
         self.controller.logger.setLevel(logging.ERROR)
         self.axes = []
         self._servos = {}
-        self.servo_ids = self.controller.list_servos()
+        self.servo_ids = self.controller.list_servos(max_id=max_id)
         if not self.servo_ids:
             self.log.error("no servos found")
         else:
@@ -60,7 +78,7 @@ class MotorController:
                 else:
                     found_all_axes = False
             if not found_all_axes:
-                self.log.err("unexpected servo configuration found, continuing anyway")
+                self.log.error("unexpected servo configuration found, continuing anyway")
         #DEBUG code to check what happens when we call a servo that isn't there
         #try:
         #    from python_st3215 import Servo

@@ -151,7 +151,7 @@ RTD_WIRES = 2                  # temp sensor is attached in 2-wire setup
 # motor settings
 ST_DEVICE = { '_default_': '/dev/ttyS0', # UART device (Raspberry 4)
               '5': '/dev/ttyAMA0' }      # UART device (Raspberry 5)
-ST_MAX_ID = 10                 # maximum servo ID to scan for (curr. not used)
+ST_MAX_ID = 10                 # maximum servo ID to scan for
 # some servo configuration parameters are now part of Motors class
 # servo configuration for the three axes
 # values with lower-case names will be modified by the program
@@ -252,7 +252,7 @@ motor_timeout = MOTOR_TIMEOUT
 
 prog_end = threading.Event()
 
-with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, motorconf=SERVOS) as motor_controller:
+with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, motorconf=SERVOS, max_id=ST_MAX_ID) as motor_controller:
 
     # we try to do this as early as possible: stop motors if they are moving
     motor_controller.stop_all()
