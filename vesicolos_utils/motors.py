@@ -14,6 +14,7 @@ class myServo(Servo):
     mode_names = { 0: "position", 1: "wheel", 2: "PWM", 3: "stepper" }
     MODE_SERVO = 0
     MODE_WHEEL = 1
+    ACC = 0x29
     GOAL_SPEED = 0x2E
     PRESENT_POSITION = 0x38
     PRESENT_SPEED = 0x3A
@@ -21,41 +22,27 @@ class myServo(Servo):
     PRESENT_TEMPERATURE = 0x3F
     MOVING = 0x42
     PRESENT_CURRENT = 0x45
-    def SyncReadWord(self, servo_ids, cmd):
-        responses: dict[int, dict[str, Any] | None]= self._sync_read(
-                cmd, 2, servo_ids
-        )
-        results: dict[int, int | None] = {}
-        for servo_id, response in responses.items():
-            if response and isinstance(response,dict) and response.get("parameters"):
-                data: list[int] | bytes = response["parameters"]
-                results[servo_id] = int(Word16(0, bitsigned=True, bigendian=True).from_bytes(data[0],data[1]))
-            else:
-                results[servo_id] = None
-        return results
     def WriteRunningSpeed(self, vel):
-        lo, hi = Word16(vel,bigendian=True,bitsigned=True,safe_bound=True).to_bytes()
-        return self._write_memory(self.GOAL_SPEED, [lo, hi])
+        return self.sram.write_running_speed(vel)
     def SyncWriteRunningSpeed(self, servo_data: dict[int, int]) -> None:
-        formatted_data: dict[int, list[int]] = {}
-        for servo_id, value in servo_data.items():
-            lo, hi = Word16(value,bigendian=True,bitsigned=True,safe_bound=True).to_bytes()
-            formatted_data[servo_id] = [lo, hi]
-        return self._sync_write(self.GOAL_SPEED, 2, formatted_data) # type: ognore
+        return self.controller.broadcast.sram.sync_write_running_speed(servo_data)
     def ReadPresentSpeed(self):
-        b = self._read_memory(self.PRESENT_SPEED, 2)
-        if b is not None:
-            return int(Word16(b, bitsigned=True))
-        return None
+        return self.sram.read_current_speed()
     def SyncReadPresentSpeed(self, servo_ids):
-        return self.SyncReadWord(servo_ids, self.PRESENT_SPEED)
+        return self.controller.broadcast.sram.sync_read_current_speed(servo_ids)
     def ReadPresentPosition(self):
-        b = self._read_memory(self.PRESENT_POSITION, 2)
-        if b is not None:
-            return int(b)
+        return self.sram.read_current_location()
     def SyncReadPresentPosition(self, servo_ids):
-        return self.SyncReadWord(servo_ids, self.PRESENT_POSITION)
-        return None
+        return self.controller.broadcast.sram.sync_read_current_location(servo_ids)
+    def WriteTargetPosition(self, pos):
+        # FIXME: copied this from the old code, but maybe this was not needed
+        # and we simply need to wait for the movement to finish
+        # problem: negative positions are not what I think they were
+        acc = 50
+        lo, hi = Word16(pos,bitsigned=True,safe_bound=True,bigendian=True).to_bytes()
+        print("LOHI",lo,hi)
+        return self._write_memory(self.ACC,[acc,lo,hi,0,0,0,0])
+        return self.sram.write_target_location(pos)
     def ReadPresentVoltage(self):
         """Return current voltage in V."""
         b = self._read_memory(self.PRESENT_VOLTAGE, 1)
@@ -113,6 +100,7 @@ class Motors:
 class MotorController:
     def __init__ (self, device, log, axes_map={}, motorconf={}, max_id=253):
         self.log = log
+        self.serial_lock = threading.Lock()
         self.current_set_speed = {}
         try:
             self.scan(device, axes_map, motorconf, max_id)
@@ -192,57 +180,69 @@ class MotorController:
         """Stop all servos"""
         if not self.controller: return False
         success = True
-        self.controller.broadcast.SyncWriteRunningSpeed(
+        with self.serial_lock:
+            self.controller.broadcast.SyncWriteRunningSpeed(
                 {servo.id: 0 for servo in self._servos.values()}
-        )
-        # use broadcast sync_read_current_speed for return?
-        for ax in self.current_set_speed:
-            self.current_set_speed[ax] = 0
-            vel = self._servos[ax].ReadPresentSpeed()
-            if vel is None or vel != 0:
-                #self.current_set_speed[ax] = vel
-                self.log.error("motor set speed 0 failed?"+str(vel))
-                success =False
+            )
+            # use broadcast sync_read_current_speed for return?
+            for ax in self.current_set_speed:
+                self.current_set_speed[ax] = 0
+                vel = self._servos[ax].ReadPresentSpeed()
+                if vel is None or vel != 0:
+                    #self.current_set_speed[ax] = vel
+                    self.log.error("motor set speed 0 failed?"+str(vel))
+                    success =False
         return success
         #return sum(map(abs,speeds))==0
     def set_speed (self, axis, vel, return_read=False):
-        if axis in self.axes:
+        if not axis in self.axes:
+            return None, None
+        with self.serial_lock:
             res = self._servos[axis].WriteRunningSpeed(vel)
             if res and not res['error']:
                 self.current_set_speed[axis] = vel
-        read_vel = None
-        if return_read:
-            read_vel = self._servos[axis].ReadPresentSpeed()
+            read_vel = None
+            if return_read:
+                read_vel = self._servos[axis].ReadPresentSpeed()
         return res, read_vel
     def get_speed (self, axis=''):
         if not axis:
-            vel = {}
-            vel = self.controller.broadcast.SyncReadPresentSpeed(self.axes_map.keys())
+            with self.serial_lock:
+                vel = self.controller.broadcast.SyncReadPresentSpeed(self.axes_map.keys())
             vel = {self.axes_map[i]: vel[i] for i in vel}
             return vel
         elif axis in self.axes:
-            vel = self._servos[axis].ReadPresentSpeed()
+            with self.serial_lock:
+                vel = self._servos[axis].ReadPresentSpeed()
             return vel
         return None
-    # TODO
-    def goto_position (self, axis, pos, return_read=False):
-        # TODO FIXME: this should be just the sram call to set the position
-        # similar to set_speed
-        # the old code would use WritePosEx
-        # wrting [acc, lo(pos), hi(pos), 0, 0, lo(speed), hi(speed)]
-        # with speed set to zero I guess
-        # and negative positions were written as
-        # pos = (-pos) | (1<<15)
-        # which I do not understand yet
-        pass
+    def goto_position (self, axis, pos, return_read=False, wait_moving=True):
+        if not axis in self.axes:
+            return None, None
+        with self.serial_lock:
+            res = self._servos[axis].WriteTargetPosition(pos)
+            if res and not res['error']:
+                pass
+            if wait_moving or not wait_moving: #FIXME
+                timeout = 2
+                start_time = time.time()
+                while self._servos[axis].isMoving():
+                    if time.time() - start_time > timeout:
+                        break
+                    time.sleep(0.05)
+            read_pos = None
+            if return_read:
+                read_pos = self._servos[axis].ReadPresentPosition()
+        return res, read_pos
     def read_position (self, axis=''):
         if not axis:
-            pos = {}
-            pos = self.controller.broadcast.SyncReadPresentPosition(self.axes_map.keys())
+            with self.serial_lock:
+                pos = self.controller.broadcast.SyncReadPresentPosition(self.axes_map.keys())
             pos = {self.axes_map[i]: pos[i] for i in pos}
             return pos
         elif axis in self.axes:
-            pos = self._servos[axis].ReadPresentPosition()
+            with self.serial_lock:
+                pos = self._servos[axis].ReadPresentPosition()
             return pos
         return None
     def wheel_mode (self, axis='', wheel=True):
@@ -250,14 +250,17 @@ class MotorController:
         If `axis==-1` (default), apply to all axes."""
         mode = 1 if wheel else 0
         if not axis:
-            # TODO broadcast
-            for ax in self.axes:
-                self._servos[ax].setWheelMode(wheel)
+            with self.serial_lock:
+                # TODO broadcast
+                for ax in self.axes:
+                    self._servos[ax].setWheelMode(wheel)
         elif axis in self.axes:
-            self._servos[axis].setWheelMode(wheel)
-    # TODO FIXME
+            with self.serial_lock:
+                self._servos[axis].setWheelMode(wheel)
+    # TODO FIXME also make this a menu item in the cli (m)
     def set_middle (self, axis):
         pass
+    # TODO FIXME
     def move_to_position (self, target_pos, wrap):
         """Move all motors to the positions given in `target_pos`, taking into
         account the wrap-around counters `wrap`.
@@ -271,6 +274,12 @@ class MotorController:
         # 3. move to 2048+delta
         #    possibly first a multiple of 7 turns if delta too large
         # 4. go to wheel mode
+        # FIXME no longer sure about the logic here: if we set the middle
+        # position in servo mode, does this affect the position in wheel mode?
+        # if so, this messes up all subsequent positions
+        # but I think we needed it to reset the internal wrap counter
+        # of the servo
+        # FIXME use serial_lock when needed, but maybe we can use our own API
         try:
             success = self.monitor.update_pos()
             if not success:

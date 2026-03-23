@@ -154,6 +154,7 @@ class CLI:
     def goto_position(self):
         """goto a specific position (servo mode)"""
         self.motor_controller.stop_all()
+        self.monitor.stop()
         ax = input('axis? ').upper()
         if not ax in self.motor_controller.axes:
             print ("axis not found")
@@ -166,9 +167,10 @@ class CLI:
             return
         self.motor_controller.wheel_mode(ax,False)
         time.sleep(0.2)
-        self.motor_controller.goto_position(ax,pos)
+        self.motor_controller.goto_position(ax,pos,wait_moving=False)
         time.sleep(0.2)
         self.motor_controller.wheel_mode(ax,True)
+        self.monitor.start()
     def set_velocity (self):
         """set the velocity of a motor by hand"""
         self.motor_controller.stop_all()
@@ -190,6 +192,7 @@ class CLI:
     def query_position(self):
         """query motor positions"""
         self.motor_controller.stop_all()
+        self.monitor.stop()
         wheelpos = self.motor_controller.read_position()
         time.sleep(0.2)
         self.motor_controller.wheel_mode(axis='',wheel=False)
@@ -199,6 +202,7 @@ class CLI:
         self.motor_controller.wheel_mode(axis='',wheel=True)
         print ("current position (wheel)",wheelpos)
         print ("current position (servo)",servopos)
+        self.monitor.start()
     def toggle_led(self):
         """toggle LED"""
         self.led.toggle()
