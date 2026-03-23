@@ -89,21 +89,6 @@ class myST3215(ST3215):
         super().__init__(port, baudrate, read_timeout)
         self.broadcast = myServo(self, 254)
 
-    def list_servos(self, max_id: int = 253) -> list[int]:
-        """
-        Scan for connected servos by pinging all possible IDs (0-253)
-        or up to the given `max_id`.
-        Returns:
-            List of servo IDs that responded to the ping.
-        """
-        found = []
-        for servo_id in range(0, min(max_id+1,254)):
-            try:
-                self.wrap_servo(servo_id)
-                found.append(servo_id)
-            except ServoNotRespondingError:
-                continue
-        return found
     def wrap_servo(self, servo_id: int) -> myServo:
         """
         Create a Servo instance for the given servo ID after verifying it responds to ping.
@@ -118,51 +103,6 @@ class myST3215(ST3215):
                 f"Servo ID {servo_id} did not respond to ping."
             )
         return myServo(self, servo_id)
-    # the original implementation is buggy
-    def _sync_read(self, address: int, data_length: int,
-                   servo_ids: Sequence[int]) -> dict[int,Optional[dict[str,object]]]:
-        self.logger.debug(
-                f"SYNC READ from address {address:#02x}, length {data_length} "
-                f"for servos {servo_ids}"
-        )
-        parameters = [address, data_length, *servo_ids]
-        packet = self.send_instruction(0xFE, Instruction.SYNC_READ, parameters)
-        responses: dict[int, Optional[dict[str, object]]] = {}
-        rxpacket = self.read_response(packet)
-        bytelist = iter(rxpacket)
-        response = {}
-        pkcomplete = False
-        try:
-            while next(bytelist)==0xFF and next(bytelist)==0xFF:
-                pkcomplete = False
-                scs_id = next(bytelist)
-                retlen = next(bytelist)
-                if retlen != data_length+2:
-                    response[scs_id] = None
-                    break
-                err = next(bytelist)
-                data = [next(bytelist) for _ in range(data_length)]
-                crc = ~(sum(data) + retlen + scs_id + err) & 0xFF
-                rcrc = next(bytelist)
-                #if crc != rcrc:
-                #    response[scs_id] = None
-                response[scs_id] = data
-                response[scs_id] = {
-                        "header": [0xFF, 0xFF],
-                        "id": scs_id,
-                        "length": retlen,
-                        "error": err,
-                        "parameters": data,
-                        "received_checksum": rcrc,
-                        "calculated_checksum": crc,
-                        "checksum_valid": (rcrc==crc)
-                }
-                pkcomplete = True
-        except StopIteration:
-            pass
-        # TODO can inspect pkcomplete==True for success
-        return response
-
 
 class Motors:
     ST_STEPS = 4096
@@ -189,7 +129,7 @@ class MotorController:
         self.axes = []
         self.axes_map = {}
         self._servos = {}
-        self.servo_ids = self.controller.list_servos(max_id=max_id)
+        self.servo_ids = self.controller.list_servos(end_id=max_id)
         if not self.servo_ids:
             self.log.error("no servos found")
         else:
