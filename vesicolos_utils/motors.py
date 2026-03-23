@@ -131,13 +131,15 @@ class myST3215(ST3215):
         rxpacket = self.read_response(packet)
         bytelist = iter(rxpacket)
         response = {}
+        pkcomplete = False
         try:
             while next(bytelist)==0xFF and next(bytelist)==0xFF:
+                pkcomplete = False
                 scs_id = next(bytelist)
                 retlen = next(bytelist)
                 if retlen != data_length+2:
                     response[scs_id] = None
-                    #return None, "COMM_RX_CORRUPT"
+                    break
                 err = next(bytelist)
                 data = [next(bytelist) for _ in range(data_length)]
                 crc = ~(sum(data) + retlen + scs_id + err) & 0xFF
@@ -155,8 +157,10 @@ class myST3215(ST3215):
                         "calculated_checksum": crc,
                         "checksum_valid": (rcrc==crc)
                 }
+                pkcomplete = True
         except StopIteration:
             pass
+        # TODO can inspect pkcomplete==True for success
         return response
 
 
