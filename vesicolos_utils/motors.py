@@ -1,4 +1,6 @@
-from python_st3215 import ST3215, Servo, ServoNotRespondingError, Instruction
+from python_st3215 import ST3215, Servo, ServoNotRespondingError
+from python_st3215.instructions import Instruction
+from typing import Optional, Sequence
 import logging
 import time
 import threading
@@ -19,6 +21,18 @@ class myServo(Servo):
     PRESENT_TEMPERATURE = 0x3F
     MOVING = 0x42
     PRESENT_CURRENT = 0x45
+    def SyncReadWord(self, servo_ids, cmd):
+        responses: dict[int, dict[str, Any] | None]= self._sync_read(
+                cmd, 2, servo_ids
+        )
+        results: dict[int, int | None] = {}
+        for servo_id, response in responses.items():
+            if response and isinstance(response,dict) and response.get("parameters"):
+                data: list[int] | bytes = response["parameters"]
+                results[servo_id] = int(Word16(0, bitsigned=True, bigendian=True).from_bytes(data[0],data[1]))
+            else:
+                results[servo_id] = None
+        return results
     def WriteRunningSpeed(self, vel):
         lo, hi = Word16(vel,bigendian=True,bitsigned=True,safe_bound=True).to_bytes()
         return self._write_memory(self.GOAL_SPEED, [lo, hi])
@@ -34,22 +48,13 @@ class myServo(Servo):
             return int(Word16(b, bitsigned=True))
         return None
     def SyncReadPresentSpeed(self, servo_ids):
-        responses: dict[int, dict[str, Any] | None]= self._sync_read(
-                self.PRESENT_SPEED, 2, servo_ids
-        )
-        print("SSS",responses)
-        results: dict[int, int | None] = {}
-        for servo_id, response in responses.items():
-            if response and isinstance(response,dict) and response.get("parameters"):
-                data: list[int] | bytes = response["parameters"]
-                results[servo_id] = int(Word16(0, bitsigned=True, bigendian=True).from_bytes(data[0],data[1]))
-            else:
-                results[servo_id] = None
-        return results
+        return self.SyncReadWord(servo_ids, self.PRESENT_SPEED)
     def ReadPresentPosition(self):
         b = self._read_memory(self.PRESENT_POSITION, 2)
         if b is not None:
             return int(b)
+    def SyncReadPresentPosition(self, servo_ids):
+        return self.SyncReadWord(servo_ids, self.PRESENT_POSITION)
         return None
     def ReadPresentVoltage(self):
         """Return current voltage in V."""
@@ -178,6 +183,7 @@ class MotorController:
         old_level = self.controller.logger.level
         self.controller.logger.setLevel(logging.ERROR)
         self.axes = []
+        self.axes_map = {}
         self._servos = {}
         self.servo_ids = self.controller.list_servos(max_id=max_id)
         if not self.servo_ids:
@@ -203,10 +209,13 @@ class MotorController:
             for ax in sorted(list(set(axes_map.values()))):
                 if ax in self._servos:
                     self.axes.append(ax)
+                    self.axes_map[self._servos[ax].id] = ax
                 else:
                     found_all_axes = False
             if not found_all_axes:
                 self.log.error("unexpected servo configuration found, continuing anyway")
+            else:
+                self.log.debug("axes map "+str(self.axes_map))
         #DEBUG code to check what happens when we call a servo that isn't there
         #try:
         #    from python_st3215 import Servo
@@ -263,12 +272,11 @@ class MotorController:
         return res, read_vel
     def get_speed (self, axis=''):
         if not axis:
-            # TODO use broadcast
             vel = {}
-            for ax in self.axes:
-                vel[ax] = self._servos[ax].ReadPresentSpeed()
+            vel = self.controller.broadcast.SyncReadPresentSpeed(self.axes_map.keys())
+            vel = {self.axes_map[i]: vel[i] for i in vel}
+            return vel
         elif axis in self.axes:
-            # same problem with signed words in the driver
             vel = self._servos[axis].ReadPresentSpeed()
             return vel
         return None
@@ -285,10 +293,9 @@ class MotorController:
         pass
     def read_position (self, axis=''):
         if not axis:
-            # TODO should use broadcast
             pos = {}
-            for ax in self.axes:
-                pos[ax] = self._servos[ax].ReadPresentPosition()
+            pos = self.controller.broadcast.SyncReadPresentPosition(self.axes_map.keys())
+            pos = {self.axes_map[i]: pos[i] for i in pos}
             return pos
         elif axis in self.axes:
             pos = self._servos[axis].ReadPresentPosition()
@@ -422,10 +429,6 @@ class ServoMonitor():
                 #print(ansi.cursor.save_cursor()+ansi.cursor.goto(10,10)+es+" -- position",self.pos,self.wrap,self.vel,"--",ansi.cursor.load_cursor(0),end='')
                 print(" -- pos,wrap",self.pos,self.wrap,"--")
                 print("  - vel,set",self.vel,self.motors.current_set_speed,"--")
-                ids=list(set([servo.id for servo in self.motors._servos.values()]))
-                ids=[9,1]
-                print("  - ids",ids)
-                print("  - syncvel",self.motors.controller.broadcast.SyncReadPresentSpeed(ids))
                 # TODO FIXME
                 #log.info(str(status)+" T="+str(temp_sensor.temperature))
             while self.next_t < time.time():
@@ -433,19 +436,21 @@ class ServoMonitor():
             threading.Timer(self.next_t - time.time(), self._run).start()
     def read_pos_vel (self):
         success = True
-        newpos = { _:0 for _ in self.motors.axes }
-        newvel = { _:0 for _ in self.motors.axes }
-        for ax in self.motors.axes:
-            try:
-                newpos[ax] = self.motors.read_position(ax)
-                newvel[ax] = self.motors.get_speed(ax)
-            except:
-                success = False
-            if newpos[ax] is None or newvel[ax] is None:
-                success = False
-            #TODO FIXME how to read comm error?
-            #success &= motorDriver.success(comm, err)
-            #how to handle this
+        #newpos = { _:0 for _ in self.motors.axes }
+        #newvel = { _:0 for _ in self.motors.axes }
+        #for ax in self.motors.axes:
+        #    try:
+        #        newpos[ax] = self.motors.read_position(ax)
+        #        newvel[ax] = self.motors.get_speed(ax)
+        #    except:
+        #        success = False
+        #    if newpos[ax] is None or newvel[ax] is None:
+        #        success = False
+        newpos = self.motors.read_position()
+        newvel = self.motors.get_speed()
+        #TODO FIXME how to read comm error?
+        #success &= motorDriver.success(comm, err)
+        #how to handle this
         return success, newpos, newvel
     # update: query the motor positions, try to detect wrap-arounds
     def update_pos (self,detect_wrap=True):
