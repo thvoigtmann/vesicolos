@@ -42,6 +42,8 @@ class CLI:
         # then the automatic periodic state-saving will include these
         self.stored_positions = state.get('user.positions', {})
         self.stored_temperatures = state.get('user.temperatures', {})
+        #
+        self.current_axis = None
     def __enter__ (self):
         return self
     def __exit__ (self, exc_type, exc_value, traceback):
@@ -153,12 +155,12 @@ class CLI:
             self.last_savepos = poskey
     def goto_position(self):
         """goto a specific position (servo mode)"""
+        if not self.current_axis in self.motor_controller.axes:
+            print ("no workable axis set")
+            return
+        ax = self.current_axis
         self.motor_controller.stop_all()
         self.monitor.stop()
-        ax = input('axis? ').upper()
-        if not ax in self.motor_controller.axes:
-            print ("axis not found")
-            return
         posstr = input('position (servo mode)? ')
         try:
             pos = int(posstr)
@@ -171,14 +173,22 @@ class CLI:
         time.sleep(0.2)
         self.motor_controller.wheel_mode(ax,True)
         self.monitor.start()
+    def set_middle (self):
+        """reset motor position to 2048"""
+        if not self.current_axis in self.motor_controller.axes:
+            print ("no workable axis set")
+            return
+        self.motor_controller.stop_all()
+        time.sleep(0.2)
+        self.motor_controller.set_middle(self.current_axis)
     def set_velocity (self):
         """set the velocity of a motor by hand"""
+        if not self.current_axis in self.motor_controller.axes:
+            print ("no workable axis set")
+            return
+        ax = self.current_axis
         self.motor_controller.stop_all()
         self.monitor.stop()
-        ax = input('axis ?').upper()
-        if not ax in self.motor_controller.axes:
-            print ("axis not found")
-            return
         velstr = input('velocity? ')
         try:
             vel = int(velstr)
@@ -189,6 +199,10 @@ class CLI:
         print("rvel",rvel)
         print("res",res)
         self.monitor.start()
+    def set_axis (self, ax):
+        """set current working axis"""
+        if ax in self.motor_controller.axes:
+            self.current_axis = ax
     def query_position(self):
         """query motor positions"""
         self.motor_controller.stop_all()
@@ -283,13 +297,17 @@ keymap = {
     ord('5'): (CLI.recall_position,5),
     Keys.INSERT: (CLI.store_position,0),
     Keys.HOME: (CLI.recall_position,0),
+    ord('x'): (CLI.set_axis,'X'),
+    ord('y'): (CLI.set_axis,'Y'),
+    ord('z'): (CLI.set_axis,'Z'),
     ord('q'): (CLI.query_position,),
     ord('g'): (CLI.goto_position,),
+    ord('m'): (CLI.set_middle,),
     ord('v'): (CLI.set_velocity,),
     ord('l'): (CLI.toggle_led,),
     ord('h'): (CLI.toggle_heater,),
     ord('t'): (CLI.enter_temperature_ramp,),
-    ord('x'): (CLI.liftoff,),
+    ord('*'): (CLI.liftoff,),
     ord('c'): (CLI.toggle_camera,),
     ord('?'): (CLI.user_help,)
 }

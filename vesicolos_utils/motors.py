@@ -67,6 +67,8 @@ class myServo(Servo):
     def setWheelMode(self, wheel=True):
         mode = self.MODE_WHEEL if wheel else self.MODE_SERVO
         return self._write_memory(self.MODE, mode)
+    def setMiddle(self):
+        return self.sram.correct_position_to_2048()
 
 
 
@@ -247,7 +249,7 @@ class MotorController:
         return None
     def wheel_mode (self, axis='', wheel=True):
         """Set motor specified by `axis` to wheel mode.
-        If `axis==-1` (default), apply to all axes."""
+        If `axis==''` (default), apply to all axes."""
         mode = 1 if wheel else 0
         if not axis:
             with self.serial_lock:
@@ -257,9 +259,16 @@ class MotorController:
         elif axis in self.axes:
             with self.serial_lock:
                 self._servos[axis].setWheelMode(wheel)
-    # TODO FIXME also make this a menu item in the cli (m)
-    def set_middle (self, axis):
-        pass
+    def set_middle (self, axis=''):
+        """Reset motor position specified by `axis` to middle."""
+        if not axis:
+            with self.serial_lock:
+                # TODO broadcast?
+                for ax in self.axes:
+                    self._servos[ax].setMiddle()
+        elif axis in self.axes:
+            with self.serial_lock:
+                self._servos[axis].setMiddle()
     # TODO FIXME
     def move_to_position (self, target_pos, wrap):
         """Move all motors to the positions given in `target_pos`, taking into
