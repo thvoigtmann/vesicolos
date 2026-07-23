@@ -355,11 +355,12 @@ class MotorController:
 # also output temperature readings here for convenience -> this is just
 # a global "monitor", maybe move to own file
 class ServoMonitor():
-    def __init__ (self, motors, increment, silent=False, state={}):
+    def __init__ (self, motors, temp_sensor, increment, silent=False, state={}):
         self.next_t = time.time()
         self.silent = silent
         self.done = False
         self.motors = motors
+        self.temp_sensor = temp_sensor
         self.log = self.motors.log # TODO FIXME create own logger?
         self.increment = increment
         self.pos = state.get('motor.pos',{})
@@ -388,9 +389,23 @@ class ServoMonitor():
             if not self.silent:
                 if success: es=''
                 else: es='EE'
-                #print(ansi.cursor.save_cursor()+ansi.cursor.goto(10,10)+es+" -- position",self.pos,self.wrap,self.vel,"--",ansi.cursor.load_cursor(0),end='')
+                try:
+                    with open('/sys/class/thermal/thermal_zone0/temp','r') as f:
+                        cpu_temp = int(f.read())
+                except:
+                    cpu_temp = '-1000'
+                cpu_temp = float(cpu_temp/1000.)
+                if self.temp_sensor is not None:
+                    sample_temp = self.temp_sensor.temperature
+                else:
+                    sample_temp = -1
+                print(ansi.cursor.save_cursor()+ansi.cursor.goto(1,1)+es, end='')
+                #print(ansi.cursor.save_cursor()+ansi.cursor.goto(10,10)+es+" -- position",self.pos,self.wrap,self.vel,"--",ansi.cursor.load_cursor(),end='')
                 print(" -- pos,wrap",self.pos,self.wrap,"--")
                 print("  - vel,set",self.vel,self.motors.current_set_speed,"--")
+                print("CPU TEMP",cpu_temp,"SAMPLE TEMP",sample_temp)
+                print(ansi.cursor.load_cursor(),end='')
+                print("??")
                 # TODO FIXME
                 #log.info(str(status)+" T="+str(temp_sensor.temperature))
             while self.next_t < time.time():

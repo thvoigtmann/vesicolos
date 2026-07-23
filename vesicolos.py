@@ -267,7 +267,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
 
     # TODO FIXME not ServoMonitor, this is a general monitor
     # give it also the temperature sensor
-    monitor = vm.ServoMonitor(motor_controller,increment=MONITOR_INTERVAL,state=STATE_VARS)
+    monitor = vm.ServoMonitor(motor_controller,temp_sensor,increment=MONITOR_INTERVAL,state=STATE_VARS)
     # the monitor will set state_valid to False is the positions read
     # from the restart file don't match the ones read from the motors
     if not monitor.state_valid:

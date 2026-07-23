@@ -6,7 +6,8 @@ GPIO_HEATER = 12
 GPIO_LED = 13
 
 led = gpiozero.LED(GPIO_LED)
-led.off()
+#led.off()
+led.on()
 
 heater = gpiozero.PWMOutputDevice(GPIO_HEATER)
 heater.off()
