@@ -25,9 +25,10 @@ sys.path.append('python-st3215/src')
 sys.path.append('.')
 from python_st3215 import ST3215
 from vesicolos_utils import getkey,Keys,kill_proc_by_name,DummyGPIO
-from vesicolos_utils import logSetup, load_restart, save_restart, load_flight_config, detect_rpi_model
+from vesicolos_utils import logSetup, load_restart, save_restart, load_flight_config, detect_rpi_model, make_camera_key
 import vesicolos_utils.motors as vm
 import vesicolos_utils.temperature as vt
+from vesicolos_utils.camera import CameraController
 from vesicolos_utils.cli import CLI, keymap
 
 
@@ -349,14 +350,14 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
 
     if not stop:
         motor_controller.stop_all()
+        # kill external previewer app if running, we want the cam ours now
+        kill_proc_by_name(RPICAM_PROCESS, log)
         if not manual_lift_off:
             # this is a real lift off, we wait for mug now
             t0 = time.time()
             # we record the ascent for sure, but if the user started before
             # we do not interrupt them
             if camera is None:
-                # kill external previewer app if running, we want the cam ours now
-                kill_proc_by_name(RPICAM_PROCESS, log)
                 try:
                     camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff_auto'})
                     threading.Thread(target=camera.record).start()
@@ -408,14 +409,11 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
             raise MicrogravityTimeout("END OF EXPERIMENT")
     
     
-    if not stop: # TODO FIXME move this down?
-        Tcontrol = TemperatureController()
-
 
 
     # CORE MICROGRAVITY EXPERIMENT PROCEDURE
 
-    def microgravity_experiment ():
+    def microgravity_experiment (Tcontrol):
         positions = sorted(STATE_VARS['user.positions'].keys() or ['default'])
         log.info("mug sequence: positions "+" / ".join(positions))
         led.on()
@@ -439,8 +437,8 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                 # take some time, do z-stacks
                 tmax = STATE_VARS['user.temperatures'].get(pos,{}).get('tmax',TMAX_DEFAULT)
                 tmax = tmax + time.time()
-                if 'Z' in axes:
-                    motor_contoller.wheel_mode('Z',wheel=False)
+                if do_zstack and ('Z' in motor_controller.axes):
+                    motor_controller.wheel_mode('Z',wheel=False)
                     # do_zstack shall only be true if we don't have
                     # motor errors
                     # TODO FIXME
@@ -475,7 +473,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                     time.sleep(MOTOR_DZ_WAIT)
                     if time.time() > tmax:
                         break
-                if 'Z' in axes:
+                if do_zstack and ('Z' in motor_controller.axes):
                     motor_controller.wheel_mode('Z',wheel=True)
                     time.sleep(0.2)
                 if not camera is None:
@@ -491,9 +489,9 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
 
         with vt.TemperatureController(heater,temp_sensor,STATE_VARS['user.temperatures'],T,T_SIGNATURE,log) as Tcontrol:
 
-            threading.Thread(target=Tcontrol.start).start()
+            threading.Thread(target=Tcontrol.start,args=[prog_end]).start()
             try:
-                microgravity_experiment()
+                microgravity_experiment(Tcontrol)
             except MicrogravityTimeout as msg:
                 log.info(str(msg))
 

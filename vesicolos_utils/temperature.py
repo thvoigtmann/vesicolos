@@ -1,3 +1,5 @@
+import time
+
 class TemperatureController:
     # TODO: make this carry its own logfile handle, init with fname
     # this is not really a logger, it is just an open file
@@ -6,13 +8,13 @@ class TemperatureController:
     # TODO FIXME: if no 'default' in TEMPERATURES: turn off temp control
     def __init__ (self, heater, sensor, temperature_profiles, tfunc, tfunc_signature, log):
         self.profiles = temperature_profiles
-        self.set_profile ('default')
         self.heater = heater
         self.sensor = sensor
         self.Tfunc = tfunc
         self.signature = tfunc_signature
         self.log = log
         self.stop = False
+        self.set_profile ('default')
     def __enter__ (self):
         return self
     def __exit__ (self, exc_type, exc_value, traceback):

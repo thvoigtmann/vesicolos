@@ -1,4 +1,4 @@
-import logging, time
+import logging, time, os, sys
 from vesicolos_utils import getkey, Keys, make_camera_key
 
 
@@ -44,13 +44,64 @@ class CLI:
         self.stored_temperatures = state.get('user.temperatures', {})
         #
         self.current_axis = None
+        #
+        self._tsize = None
+        self.__stdout = open(sys.stdout.fileno(), mode='wb', buffering=0, closefd=False)
     def __enter__ (self):
+        self._add_bar()
+        self.monitor.statusbar = self._print_bar
         return self
     def __exit__ (self, exc_type, exc_value, traceback):
         if self.stop and self.camera:
             self.camera.stop()
             self.camera = None
+        self.monitor.statusbar = print
+        self._remove_bar()
         pass
+    def _add_bar (self):
+        # setup pretty-printing on terminal
+        size = os.get_terminal_size()
+        if size != self._tsize:
+            scroll = size.lines - 3
+            self.__stdout.write(
+                b'\0337' # save cursor and attributes
+                b'\033[r' # reset scroll region (moves cursor)
+                b'\0338' # restore cursor and attributes
+                b'\033D' # move/scroll down
+                b'\033D' # move/scroll down
+                b'\033D' # move/scroll down
+                b'\033M' # move up
+                b'\033M' # move up
+                b'\033M' # move up
+                b'\0337' # save cursor and attributes
+                b'\033[1;%dr' # set scroll region
+                b'\0338' # restore cursor and attributes
+                % scroll)
+            self._tsize = size
+    def _print_bar (self, bar : str) -> None:
+        self.__stdout.write(
+            b'\0337' # save cursor and attributes
+            b'\033[%d;1H' # move cursor to bottom row, first column
+            b'\033[?7l' # disable line wrap
+            b'\033[0m' # clear attributes
+            b'%s' # print bar
+            b'\033[?7h' # enable line wrap
+            b'\0338' # restore cursor and attributes
+            % (self._tsize.lines - 2, bar.encode()))
+    def _remove_bar (self) -> None:
+        if self._tsize is not None:
+            self.__stdout.write(
+                b'\0337' # save cursor position
+                b'\033[%d;1H' # move cursor to bottom row, first column
+                b'\033[K' # clear entire line
+                b'\033D' # move/scroll down
+                b'\033[K' # clear entire line
+                b'\033D' # move/scroll down
+                b'\033[K' # clear entire line
+                b'\033[r' # reset scroll region
+                b'\0338' # restore cursor position
+                % (self._tsize.lines - 2))
+            self._tsize = None
     def start (self, stop_event):
         """Start the UI loop, processing key strokes and performing the
         relevant actions. Interrupted if `stop_event.is_set()` from the

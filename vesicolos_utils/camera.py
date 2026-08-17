@@ -1,3 +1,5 @@
+import picamera2
+
 # camera controller, used later
 class CameraController ():
     def __init__ (self, filename, pts=None, keys={}):

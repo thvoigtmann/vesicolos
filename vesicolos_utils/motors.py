@@ -5,6 +5,7 @@ import logging
 import time
 import threading
 
+from serial import PortNotOpenError
 from . import Word16
 
 import ansi
@@ -382,6 +383,7 @@ class ServoMonitor():
                 self.pos[ax] = pos[ax]
             if not ax in self.wrap:
                 self.wrap[ax] = 0
+        self.statusbar = print
         self._run()
     def _run (self):
         if not self.done:
@@ -399,13 +401,20 @@ class ServoMonitor():
                     sample_temp = self.temp_sensor.temperature
                 else:
                     sample_temp = -1
-                print(ansi.cursor.save_cursor()+ansi.cursor.goto(1,1)+es, end='')
-                #print(ansi.cursor.save_cursor()+ansi.cursor.goto(10,10)+es+" -- position",self.pos,self.wrap,self.vel,"--",ansi.cursor.load_cursor(),end='')
-                print(" -- pos,wrap",self.pos,self.wrap,"--")
-                print("  - vel,set",self.vel,self.motors.current_set_speed,"--")
-                print("CPU TEMP",cpu_temp,"SAMPLE TEMP",sample_temp)
-                print(ansi.cursor.load_cursor(),end='')
-                print("??")
+                #print(ansi.cursor.save_cursor()+ansi.cursor.goto(1,1)+es, end='')
+                ##print(ansi.cursor.save_cursor()+ansi.cursor.goto(10,10)+es+" -- position",self.pos,self.wrap,self.vel,"--",ansi.cursor.load_cursor(),end='')
+                #print(" -- pos,wrap",self.pos,self.wrap,"--")
+                #print("  - vel,set",self.vel,self.motors.current_set_speed,"--")
+                posinfo = '  '.join([ ax + f' {self.pos[ax]:4d} ({self.wrap[ax]:2d})' for ax in self.pos ])
+                velinfo = '  '.join([ ax + f' {self.vel[ax]:4d}' for ax in self.vel ])
+                velsetinfo = '  '.join([ ax + f' {self.motors.current_set_speed[ax]:4d}' for ax in self.motors.current_set_speed ])
+                self.statusbar(
+                        f"| CPU TEMP {cpu_temp:.2f} SAMPLE TEMP {sample_temp:.2f}\n"
+                        f"| POS {posinfo}\n"
+                        f"| VEL {velinfo} SETVEL {velsetinfo}"
+                )
+                #print(ansi.cursor.load_cursor(),end='')
+                #print("??")
                 # TODO FIXME
                 #log.info(str(status)+" T="+str(temp_sensor.temperature))
             while self.next_t < time.time():
@@ -423,8 +432,14 @@ class ServoMonitor():
         #        success = False
         #    if newpos[ax] is None or newvel[ax] is None:
         #        success = False
-        newpos = self.motors.read_position()
-        newvel = self.motors.get_speed()
+        try:
+            newpos = self.motors.read_position()
+            newvel = self.motors.get_speed()
+        except PortNotOpenError as e:
+            success = False
+            newpos = { _:None for _ in self.motors.axes }
+            newvel = { _:None for _ in self.motors.axes }
+            pass
         #TODO FIXME how to read comm error?
         #success &= motorDriver.success(comm, err)
         #how to handle this
