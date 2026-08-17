@@ -26,6 +26,9 @@ def logSetup (path_template, logfile, templogfile):
     Returns:
     --------
     log : logging object
+        Should be used to write status messages.
+    tlog : logging object
+        Should be used to write temporal events (like temperature).
     path : directory for log and output files
     """
     log = logging.getLogger("VESICOLOS")
@@ -48,8 +51,14 @@ def logSetup (path_template, logfile, templogfile):
     _file_log = logging.FileHandler(os.path.join(path,logfile))
     _file_log.setFormatter(_log_formatter)
     log.addHandler(_file_log)
-    # TODO FIXME SETUP temperature log here!? TEMPERATURE_LOG
-    return log, path 
+
+    tlog = logging.getLogger("VESICOLOS")
+    _log_formatter = logging.Formatter("%(asctime)s %(message)s")
+    _file_log = logging.FileHandler(os.path.join(path,templogfile))
+    _file_log.setFormatter(_log_formatter)
+    tlog.addHandler(_file_log)
+
+    return log, tlog, path 
 
 
 def load_restart (state, restartfile, log):

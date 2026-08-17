@@ -356,13 +356,13 @@ class MotorController:
 # also output temperature readings here for convenience -> this is just
 # a global "monitor", maybe move to own file
 class ServoMonitor():
-    def __init__ (self, motors, temp_sensor, increment, silent=False, state={}):
+    def __init__ (self, motors, temp_sensor, log, increment, silent=False, state={}, global_status={}):
         self.next_t = time.time()
         self.silent = silent
         self.done = False
         self.motors = motors
         self.temp_sensor = temp_sensor
-        self.log = self.motors.log # TODO FIXME create own logger?
+        self.log = log
         self.increment = increment
         self.pos = state.get('motor.pos',{})
         self.wrap = state.get('motor.wrap',{})
@@ -375,7 +375,7 @@ class ServoMonitor():
         for ax in self.motors.axes:
             if ax in self.pos:
                 if success and not (self.pos[ax] == pos[ax]):
-                    self.log.error(f"{ax} axis mismatch of position: restart {self.pos[ax]} / current {pos[ax]}")
+                    self.motors.log.error(f"{ax} axis mismatch of position: restart {self.pos[ax]} / current {pos[ax]}")
                     self.pos[ax] = pos[ax]
                     self.wrap[ax] = 0
                     self.state_valid = False
@@ -383,6 +383,7 @@ class ServoMonitor():
                 self.pos[ax] = pos[ax]
             if not ax in self.wrap:
                 self.wrap[ax] = 0
+        self.status = global_status
         self.statusbar = print
         self._run()
     def _run (self):
@@ -401,22 +402,16 @@ class ServoMonitor():
                     sample_temp = self.temp_sensor.temperature
                 else:
                     sample_temp = -1
-                #print(ansi.cursor.save_cursor()+ansi.cursor.goto(1,1)+es, end='')
-                ##print(ansi.cursor.save_cursor()+ansi.cursor.goto(10,10)+es+" -- position",self.pos,self.wrap,self.vel,"--",ansi.cursor.load_cursor(),end='')
-                #print(" -- pos,wrap",self.pos,self.wrap,"--")
-                #print("  - vel,set",self.vel,self.motors.current_set_speed,"--")
                 posinfo = '  '.join([ ax + f' {self.pos[ax]:4d} ({self.wrap[ax]:2d})' for ax in self.pos ])
                 velinfo = '  '.join([ ax + f' {self.vel[ax]:4d}' for ax in self.vel ])
                 velsetinfo = '  '.join([ ax + f' {self.motors.current_set_speed[ax]:4d}' for ax in self.motors.current_set_speed ])
                 self.statusbar(
                         f"| CPU TEMP {cpu_temp:.2f} SAMPLE TEMP {sample_temp:.2f}\n"
-                        f"| POS {posinfo}\n"
+                        f"| POS {posinfo} {es} {flags}\n"
                         f"| VEL {velinfo} SETVEL {velsetinfo}"
                 )
-                #print(ansi.cursor.load_cursor(),end='')
-                #print("??")
-                # TODO FIXME
-                #log.info(str(status)+" T="+str(temp_sensor.temperature))
+                flags = ' '.join([f"{k} {v}" for k,v in self.status.items()])
+                self.log.info(f"{sample_temp} {posinfo} {velinfo} {flags}")
             while self.next_t < time.time():
                 self.next_t += self.increment
             threading.Timer(self.next_t - time.time(), self._run).start()

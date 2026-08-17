@@ -30,59 +30,14 @@ import vesicolos_utils.motors as vm
 import vesicolos_utils.temperature as vt
 from vesicolos_utils.camera import CameraController
 from vesicolos_utils.cli import CLI, keymap
+from vesicolos_utils.defaults import *
 
 
-## GLOBAL SETTINGS
-
-#
-# the settings here can be adjusted without changing the hardware setup
-#
-
-# timeout settings for the expected flight trajectory
-# the defaults hard-coded here came from the MAPHEUS-16 flight
-# and the MOSAIC timeline of that flight
-# they will be overwritten if json files are found in CONFPATH
-CONFPATH = 'flight_config'
-SOE_TIMEOUT_DEFAULT = 67       # timeout to start if no mug signal comes
-EXP_TIMEOUT_DEFAULT = 400      # timeout for duration of experiment
-MUG_STICKY = True              # if true, keep mug status ON once set
-
-# motor-related adjustable seetings
-MONITOR_INTERVAL = 1           # interval in seconds for the motor monitor
-ST_MOVING_ACC = 50             # default servo acceleration
-ST_MOVING_ACC_SLOW = 10        # servo acceleration for slow movements
-# for zstack: we have 1 turn = 4096 steps = 100mu
-# aim for slices 1mu apart => stepsize = 40 steps = 0.98mu
-# 50 such steps (half below, half above target) => scan depth 2000steps=48.8mu
-# we also specify the waiting time on each z position in the stack
-MOTOR_DZ_STEPSIZE = 40         # in steps, 4096 steps = 100mu
-MOTOR_DZ_STEPS = 50            # number of steps, scan depth = steps*stepsize
-MOTOR_DZ_WAIT = 0.1            # in seconds, wait time at each step
-# if we loose internet connection we don't want the motors to move
-# indefinitely, so there is a timeout in interactive mode
-MOTOR_TIMEOUT = 30              # seconds until motor stop in unattended UI mode
-# TODO also add a configurable torque limit, probably per axis (and direction?)
-SERVOS = {
-  '_default_': { 'SPEED_INC': 200 },
-  'Z': { 'SPEED_INC': 40, 'MAX_WRAP': 1 }
-}
-# mapping of keys to control the Cartesian axes and their directions
-# this is currently configured to work in inverted mode, so that arrow
-# keys are intuitive if one watches the image on the camera
-# one could revert the directions if the keys should correspond to the
-# way the sample slide actually moves
-SERVO_CMDS = {
-    Keys.LEFT:   { 'axis': 'Y', 'dir': +1 },
-    Keys.RIGHT:  { 'axis': 'Y', 'dir': -1 },
-    Keys.DOWN:   { 'axis': 'X', 'dir': -1 },
-    Keys.UP:     { 'axis': 'X', 'dir': +1 },
-    Keys.PGUP:   { 'axis': 'Z', 'dir': -1 },
-    Keys.PGDOWN: { 'axis': 'Z', 'dir': +1 }
-}
+## GLOBAL STATE VARIABLES
 
 # state variables are those that will be continuously saved to a restart file
 # and read from there upon startup
-# they reflect everything that the user or the hardware state could modify
+# they reflect what the user or the hardware state could modify
 # (stored positions, stored temperature profiles, wrap counter for motors)
 # and that we want back after a program cycle
 # these could be power cycles, so we try to catch what we can
@@ -90,82 +45,18 @@ SERVO_CMDS = {
 STATE_VARS = {
     'user.positions': {},
     'user.temperatures': {
-        'default': { 'Tmin': 25, 'Tmax': 40, 'dt': 30, 'ts': 10, 'tmax': 90 }
+        'default': { 'type': 'ramp', 'Tmin': 25, 'Tmax': 40, 'dt': 30, 'tstart': 10, 'tmax': 90 }
     },
     'motor.pos': {},
     'motor.wrap': {}
 }
-TMAX_DEFAULT = 50 # should not be used if we have 'tmax' keys
-# the temperature profile is defined like this:
-#     T(t) = Tmin                              for t < ts
-#     T(t) = Tmin + (Tmax-Tmin)*(t-ts)/dt      for ts < t < ts+dt
-#     T(t) = Tmax                              for ts+dt < t < tmax
-# where t=0 is set by the time a stored position is first moved to
-T_SIGNATURE = ["Tmin","Tmax","dt","ts","tmax"]
-def T(t,Tmin,Tmax,dt,ts,tmax):
-    if t>tmax:
-        # should not happen anyway, but should make the heater go off
-        return 0.
-    tau = t-ts
-    if tau <= 0:
-        return Tmin
-    if tau >= dt:
-        return Tmax
-    return Tmin + (Tmax - Tmin) * tau/dt
-
-# files that will be written by the process
-RESTARTFILE = 'vesicolos-restart.json'
-# all these files will reside in a run-specific directory that is created
-LOGPATH = '%Y-%m-%d-%H-%M-%S' # will be used within strftime
-LOGFILE = 'vesicolos.log'
-TEMPERATURE_LOG = 'temperature.log'
-CAMFILE = 'capture-{pos}.h264' # could use {frame:06d} or something
-PTSFILE = 'capture-{pos}-pts.txt'
-# name of rpicam process to kill if the user started it separately
-RPICAM_PROCESS = 'rpicam-vid'
-
-
-## HARDWARE SETTINGS
-
-#
-# these settings reflect the actual hardware configuration of VESCIOLOS
-# there should be no need to change these once the hardware is fixed
-#
-# GPIO pin layout used
-STATUS_PINS = { 'LO': 17, 'mug': 27 } # GPIO pins used for signals
-GPIO_LED = 13                  # GPIO pin used for LED (PWM)
-GPIO_HEATER = 12               # GPIO pin used for heater (PWM)
-# TODO FIXME do we really need to use board.D5 or can we put num value?
-try:
-    GPIO_TEMP = board.D5           # cable select for temp sensor (SPI) on GPIO 5
-except:
-    GPIO_TEMP = 5
-# SPI bus pin layout
-# these are the defaults, values here are not used in the code below for now:
-#GPIO_MISO = 9                 # MISO signal for SPI bus
-#GPIO_MOSI = 10                # MOSI signal for SPI bus
-#GPIO_CLK = 11                 # CLK signal for SPI bus
-# settings for temperature sensor
-RTD_NOMINAL = 1000             # temp sensor is a PT1000
-RTD_REFERENCE = 4300           # MAX31865 board uses 4300ohm reference
-RTD_WIRES = 2                  # temp sensor is attached in 2-wire setup
-# motor settings
-ST_DEVICE = { '_default_': '/dev/ttyS0', # UART device (Raspberry 4)
-              '5': '/dev/ttyAMA0' }      # UART device (Raspberry 5)
-ST_MAX_ID = 10                 # maximum servo ID to scan for
-# some servo configuration parameters are now part of Motors class
-# servo configuration for the three axes
-# values with lower-case names will be modified by the program
-# the IDs are hard-coded in the motors
-SERVO_AXIS_MAP = { 0: 'X', 9: 'Y', 1: 'Z' }
 
 
 
 
 ## STARTUP CODE
 
-# TODO FIXME temperature log needs to be setup
-log, path = logSetup(LOGPATH, LOGFILE, TEMPERATURE_LOG)
+log, tlog, path = logSetup(LOGPATH, LOGFILE, TEMPERATURE_LOG)
 camfile = os.path.join(path,CAMFILE)
 ptsfile = os.path.join(path,PTSFILE)
 
@@ -208,8 +99,6 @@ except Exception as e:
     log.error('no temperature sensor available')
     temp_sensor = None
 
-# TODO: FIX THIS
-#temperature_log = Logger(temperature_logfile)
 
 # set UART device depending on raspberry model or environment variables
 rpi_model = os.environ.get("RASPI_MODEL",None)
@@ -241,6 +130,7 @@ def wait_for_lo (stop_event):
     if not stop_event.is_set():
         status['LO'] = True
         log.info("*** LIFT OFF ***")
+        tlog.info("# LIFT OFF")
 
 
 
@@ -268,7 +158,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
 
     # TODO FIXME not ServoMonitor, this is a general monitor
     # give it also the temperature sensor
-    monitor = vm.ServoMonitor(motor_controller,temp_sensor,increment=MONITOR_INTERVAL,state=STATE_VARS)
+    monitor = vm.ServoMonitor(motor_controller,temp_sensor,log=tlog,increment=MONITOR_INTERVAL,state=STATE_VARS,global_status=status)
     # the monitor will set state_valid to False is the positions read
     # from the restart file don't match the ones read from the motors
     if not monitor.state_valid:
@@ -298,6 +188,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
 
     if not status['LO']:
         log.info("PHASE 1: INTERACTIVE MODE - WAITING FOR LIFT OFF")
+        tlog.info("# WAITING FOR LO")
         stop_event = threading.Event()
         threading.Thread(target=wait_for_lo,args=[stop_event]).start()
         with CLI(motor_controller=motor_controller,monitor=monitor,led=led,heater=heater,keymap=keymap,movement_map=SERVO_CMDS,state=STATE_VARS) as cli:
@@ -370,6 +261,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                 time.sleep(0.5)
                 if time.time() - t0 >= SOE_TIMEOUT:
                     log.write("SOE by timeout")
+                    tlog.write("SOE ON timeout")
                     break
             if camera is not None:
                 camera.stop()
@@ -390,10 +282,12 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
             time.sleep(1)
             if time.time() - t0 >= EXP_TIMEOUT:
                 log.info("SOE OFF by timeout")
+                tlog.info("SOE OFF timeout")
                 break
         status['mug'] = MUG_STICKY or bool(GPIO.input(STATUS_PINS['mug'])) \
                         or manual_lift_off
         log.info("END OF MUG")
+        tlog.info("END MUG")
         signal.raise_signal(signal.SIGALRM)
 
     # the SIGALRM handler is responsible for raising the exception that will
@@ -487,7 +381,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         signal.signal(signal.SIGALRM, mug_timeout_handler)
         threading.Thread(target=microgravity_timeout).start()
 
-        with vt.TemperatureController(heater,temp_sensor,STATE_VARS['user.temperatures'],T,T_SIGNATURE,log) as Tcontrol:
+        with vt.TemperatureController(heater,temp_sensor,STATE_VARS['user.temperatures'],log) as Tcontrol:
 
             threading.Thread(target=Tcontrol.start,args=[prog_end]).start()
             try:
