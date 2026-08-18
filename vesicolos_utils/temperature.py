@@ -1,4 +1,5 @@
 import time
+import inspect
 
 def temperature_ramp (t, Tmin=0., Tmax=0., dt=0., tstart=0.):
     """Linear temperature ramp, defined like
@@ -55,9 +56,9 @@ class TemperatureController:
             signature = inspect.signature(self.Tfunc).parameters
             # user-supplied parameters: all those in the profile
             # that are also valid function arguments
-            params = { k,v for k,v in profile.items() if k in signature.keys() }
+            params = { k:v for k,v in profile.items() if k in signature.keys() }
             # default parameters
-            defaults = { k,v.default for k,v in signature.items() if v.default is not inspect.Parameter.empty }
+            defaults = { k:v.default for k,v in signature.items() if v.default is not inspect.Parameter.empty }
             # merge, making sure user-defined overwrite default
             self.params = { **defaults, **params }
             self.log.info(f"temperature profile {profilename} set at t0 = {self.t0}")

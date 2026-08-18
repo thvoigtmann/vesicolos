@@ -405,12 +405,12 @@ class ServoMonitor():
                 posinfo = '  '.join([ ax + f' {self.pos[ax]:4d} ({self.wrap[ax]:2d})' for ax in self.pos ])
                 velinfo = '  '.join([ ax + f' {self.vel[ax]:4d}' for ax in self.vel ])
                 velsetinfo = '  '.join([ ax + f' {self.motors.current_set_speed[ax]:4d}' for ax in self.motors.current_set_speed ])
+                flags = ' '.join([f"{k} {int(v)}" for k,v in self.status.items()])
                 self.statusbar(
                         f"| CPU TEMP {cpu_temp:.2f} SAMPLE TEMP {sample_temp:.2f}\n"
-                        f"| POS {posinfo} {es} {flags}\n"
+                        f"| POS {posinfo} {flags} {es}\n"
                         f"| VEL {velinfo} SETVEL {velsetinfo}"
                 )
-                flags = ' '.join([f"{k} {v}" for k,v in self.status.items()])
                 self.log.info(f"{sample_temp} {posinfo} {velinfo} {flags}")
             while self.next_t < time.time():
                 self.next_t += self.increment

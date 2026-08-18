@@ -52,8 +52,9 @@ def logSetup (path_template, logfile, templogfile):
     _file_log.setFormatter(_log_formatter)
     log.addHandler(_file_log)
 
-    tlog = logging.getLogger("VESICOLOS")
-    _log_formatter = logging.Formatter("%(asctime)s %(message)s")
+    tlog = logging.getLogger("STATUS")
+    tlog.setLevel(logging.INFO)
+    _log_formatter = logging.Formatter("%(created)f %(message)s")
     _file_log = logging.FileHandler(os.path.join(path,templogfile))
     _file_log.setFormatter(_log_formatter)
     tlog.addHandler(_file_log)

@@ -24,7 +24,7 @@ except:
 sys.path.append('python-st3215/src')
 sys.path.append('.')
 from python_st3215 import ST3215
-from vesicolos_utils import getkey,Keys,kill_proc_by_name,DummyGPIO
+from vesicolos_utils import getkey,kill_proc_by_name,DummyGPIO
 from vesicolos_utils import logSetup, load_restart, save_restart, load_flight_config, detect_rpi_model, make_camera_key
 import vesicolos_utils.motors as vm
 import vesicolos_utils.temperature as vt

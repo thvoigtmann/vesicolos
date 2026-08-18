@@ -1,5 +1,7 @@
 ## GLOBAL SETTINGS
 
+from vesicolos_utils import Keys
+
 #
 # the settings here can be adjusted without changing the hardware setup
 # see below for hardware-related settings
