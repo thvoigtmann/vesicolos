@@ -357,7 +357,9 @@ class MotorController:
 # a global "monitor", maybe move to own file
 class ServoMonitor():
     def __init__ (self, motors, temp_sensor, log, increment, silent=False, state={}, global_status={}):
-        self.next_t = time.time()
+        self.t_init = time.time()
+        self.next_t = self.t_init
+        self.t_init_str = time.ctime(self.t_init)
         self.silent = silent
         self.done = False
         self.motors = motors
@@ -407,7 +409,7 @@ class ServoMonitor():
                 velsetinfo = '  '.join([ ax + f' {self.motors.current_set_speed[ax]:4d}' for ax in self.motors.current_set_speed ])
                 flags = ' '.join([f"{k} {int(v)}" for k,v in self.status.items()])
                 self.statusbar(
-                        f"| CPU TEMP {cpu_temp:.2f} SAMPLE TEMP {sample_temp:.2f}\n"
+                        f"| CPU TEMP {cpu_temp:.2f} SAMPLE TEMP {sample_temp:.2f} D {self.t_init_str} +{int(self.next_t-self.t_init):6d}s\n"
                         f"| POS {posinfo} {flags} {es}\n"
                         f"| VEL {velinfo} SETVEL {velsetinfo}"
                 )
