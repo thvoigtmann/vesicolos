@@ -360,7 +360,7 @@ class MotorController:
 # also output temperature readings here for convenience -> this is just
 # a global "monitor", maybe move to own file
 class ServoMonitor():
-    def __init__ (self, motors, temp_sensor, log, increment, silent=False, state={}, global_status={}):
+    def __init__ (self, motors, temp_sensor, led, heater, log, increment, silent=False, state={}, global_status={}):
         self.t_init = time.time()
         self.next_t = self.t_init
         self.t_init_str = time.ctime(self.t_init)
@@ -368,6 +368,8 @@ class ServoMonitor():
         self.done = False
         self.motors = motors
         self.temp_sensor = temp_sensor
+        self.heater = heater
+        self.led = led
         self.log = log
         self.increment = increment
         self.pos = state.get('motor.pos',{})
@@ -396,8 +398,14 @@ class ServoMonitor():
         if not self.done:
             success = self.update_pos()
             if not self.silent:
-                if success: es=''
-                else: es='EE'
+                if self.heater and self.heater.is_active:
+                    es = 'HEAT'
+                else:
+                    es = ''
+                if self.led and self.led.is_active:
+                    es += ' LED'
+                if not success:
+                    es += ' ERR'
                 try:
                     with open('/sys/class/thermal/thermal_zone0/temp','r') as f:
                         cpu_temp = int(f.read())
@@ -412,12 +420,10 @@ class ServoMonitor():
                     posinfo = '  '.join([ ax + f' {self.pos[ax]:4d} ({self.wrap[ax]:2d})' for ax in self.pos ])
                 else:
                     posinfo = 'ERROR'
-                    es = 'EE'
                 if self.vel is not None:
                     velinfo = '  '.join([ ax + f' {self.vel[ax]:4d}' for ax in self.vel ])
                 else:
                     velinfo = 'ERROR'
-                    es = 'EE'
                 velsetinfo = '  '.join([ ax + f' {self.motors.current_set_speed[ax]:4d}' for ax in self.motors.current_set_speed ])
                 flags = ' '.join([f"{k} {int(v)}" for k,v in self.status.items()])
                 self.statusbar(
