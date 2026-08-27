@@ -1,11 +1,12 @@
 import logging, time, os, sys
 from vesicolos_utils import getkey, Keys, make_camera_key
+from vesicolos_utils.camera import CameraController
 
 
 
 # in principle, a GUI could derive from this class
 class CLI:
-    def __init__ (self, motor_controller=None, monitor=None, led=None, heater=None, keymap={}, movement_map={}, state={}):
+    def __init__ (self, motor_controller=None, monitor=None, led=None, heater=None, keymap={}, movement_map={}, state={}, camfile='', ptsfile=''):
         self.motor_controller = motor_controller
         if motor_controller is not None:
             self.motors = motor_controller._servos
@@ -17,6 +18,8 @@ class CLI:
         self.camera = None
         self.recordings = []
         self.keymap = keymap
+        self.camfile = camfile
+        self.ptsfile = ptsfile
         if movement_map:
             for k,m in movement_map.items():
                 self.keymap[k] = (CLI.movement, m['axis'], m['dir'])
@@ -322,8 +325,11 @@ class CLI:
             ckey = make_camera_key (self.recordings, self.last_savepos or 'launch', pre='user_')
             self.recordings.append(ckey)
             try:
-                self.camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
+                self.camera = CameraController(self.camfile,pts=self.ptsfile,keys={'pos':ckey})
                 threading.Thread(target=self.camera.record).start()
+            except ModuleNotFoundError as e:
+                self.camera = None
+                self.log.error('could not load camera module: '+str(e))
             except RuntimeError as e:
                 self.camera = None
                 self.log.error("could not start camera: "+str(e))

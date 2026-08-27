@@ -15,11 +15,6 @@ import gpiozero                            # used for PWM (LED and heater)
 import board, digitalio, adafruit_max31865 # used for temperature sensor
 GPIO.setmode(GPIO.BCM)
 
-try:
-    import picamera2
-except:
-    print("picamera2 not available, continuing without camera control")
-
 # local repositories
 sys.path.append('python-st3215/src')
 sys.path.append('.')
@@ -68,7 +63,11 @@ manual_lift_off = False
 # GPIO signals
 status = { _: False for _ in STATUS_PINS }
 for pin in STATUS_PINS.values():
-    GPIO.setup(pin, GPIO.IN)
+    try:
+        GPIO.setup(pin, GPIO.IN)
+    except Exception as e:
+        log.error(f"GPIO pin '{pin}' unavailable!?")
+        input()
 
 # LED uses hardware PWM, taken care of by the gpiozero module
 try:
@@ -191,7 +190,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         tlog.info("# WAITING FOR LO")
         stop_event = threading.Event()
         threading.Thread(target=wait_for_lo,args=[stop_event]).start()
-        with CLI(motor_controller=motor_controller,monitor=monitor,led=led,heater=heater,keymap=keymap,movement_map=SERVO_CMDS,state=STATE_VARS) as cli:
+        with CLI(motor_controller=motor_controller,monitor=monitor,led=led,heater=heater,keymap=keymap,movement_map=SERVO_CMDS,state=STATE_VARS,camfile=camfile,ptsfile=ptsfile) as cli:
             threading.Thread(target=cli.start,args=[stop_event]).start()
     
             try:
@@ -253,6 +252,9 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                     camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff_auto'})
                     threading.Thread(target=camera.record).start()
                     led.on()
+                except ModuleNotFoundError as e:
+                    camera = None
+                    log.error('camera module missing! '+str(e))
                 except RuntimeError as e:
                     camera = None
                     log.error("camera error "+str(e))
@@ -310,7 +312,10 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
     def microgravity_experiment (Tcontrol):
         positions = sorted(STATE_VARS['user.positions'].keys() or ['default'])
         log.info("mug sequence: positions "+" / ".join(positions))
-        led.on()
+        if led is not None:
+            led.on()
+        else:
+            log.error('there is no light!!')
         recordings = []
         while status['mug'] or manual_lift_off:
             for pos in positions:
@@ -319,6 +324,9 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                 try:
                     camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
                     threading.Thread(target=camera.record).start()
+                except ModuleNotFoundError as e:
+                    camera = None
+                    log.error('camera module missing! '+str(e))
                 except RuntimeError as e:
                     camera = None
                     log.error('camera error '+str(e))

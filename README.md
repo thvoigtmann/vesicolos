@@ -142,3 +142,8 @@ modification-time stamp will be used. Currently, we set
 | `EXP_TIMEOUT`   | EXP timeout in seconds, if no signal comes |
 
 
+# Code Details
+
+For some more technical notes, see:
+- [doc/ST3020.md](ST3020 Servo EEPROM and SRAM registers)
+- [doc/setup.md](setup) for the flight-hardware network and git

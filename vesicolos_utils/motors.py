@@ -8,7 +8,7 @@ import threading
 from serial import PortNotOpenError
 from . import Word16
 
-import ansi
+#import ansi
 
 class myServo(Servo):
     MODE = 0x21
@@ -209,6 +209,8 @@ class MotorController:
                 read_vel = self._servos[axis].ReadPresentSpeed()
         return res, read_vel
     def get_speed (self, axis=''):
+        if not self.controller:
+            return None
         if not axis:
             with self.serial_lock:
                 vel = self.controller.broadcast.SyncReadPresentSpeed(self.axes_map.keys())
@@ -238,6 +240,8 @@ class MotorController:
                 read_pos = self._servos[axis].ReadPresentPosition()
         return res, read_pos
     def read_position (self, axis=''):
+        if not self.controller:
+            return None
         if not axis:
             with self.serial_lock:
                 pos = self.controller.broadcast.SyncReadPresentPosition(self.axes_map.keys())
@@ -404,8 +408,16 @@ class ServoMonitor():
                     sample_temp = self.temp_sensor.temperature
                 else:
                     sample_temp = -1
-                posinfo = '  '.join([ ax + f' {self.pos[ax]:4d} ({self.wrap[ax]:2d})' for ax in self.pos ])
-                velinfo = '  '.join([ ax + f' {self.vel[ax]:4d}' for ax in self.vel ])
+                if self.pos is not None:
+                    posinfo = '  '.join([ ax + f' {self.pos[ax]:4d} ({self.wrap[ax]:2d})' for ax in self.pos ])
+                else:
+                    posinfo = 'ERROR'
+                    es = 'EE'
+                if self.vel is not None:
+                    velinfo = '  '.join([ ax + f' {self.vel[ax]:4d}' for ax in self.vel ])
+                else:
+                    velinfo = 'ERROR'
+                    es = 'EE'
                 velsetinfo = '  '.join([ ax + f' {self.motors.current_set_speed[ax]:4d}' for ax in self.motors.current_set_speed ])
                 flags = ' '.join([f"{k} {int(v)}" for k,v in self.status.items()])
                 self.statusbar(
