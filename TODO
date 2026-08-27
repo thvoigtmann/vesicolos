@@ -1,11 +1,9 @@
-network setup
-nmcli con add con-name vesicolos ifname enx00800f11732f type ethernet ip4 192.168.100.42/24
-
-git setup:
-git clone --bare vesicolos -> in tmp/downloads...
-git remote add vlocal tv@localhost:tmp/downloads/v/vesicolos.git
-git fetch vlocal dev
-git merge vlocal/dev
+- check the bug with VNC and rpicam-vid
+  - idea: rpicam-vid -t 100000000 -l -o tcp://0.0.0.0:3333
+  - and on client vlc tcp/h264://192.168.100.12:3333
+  - if we do this, write code to log the current process to allow
+    ssh into the box and taking over
+  - looks like we could just run in `screen` ?
 
 hardware
 - sensor to code home position and absolute positions of stage
