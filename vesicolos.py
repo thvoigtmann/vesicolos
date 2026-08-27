@@ -62,12 +62,23 @@ manual_lift_off = False
 
 # GPIO signals
 status = { _: False for _ in STATUS_PINS }
-for pin in STATUS_PINS.values():
+for sig,pin in STATUS_PINS.items():
     try:
         GPIO.setup(pin, GPIO.IN)
+        ups()
     except Exception as e:
-        log.error(f"GPIO pin '{pin}' unavailable!?")
-        input()
+        log.error(f"GPIO pin '{pin}' for signal '{sig}' unavailable!?")
+        if sig == 'LO':
+            log.error("FATAL cannot detect LO")
+            input("confirm that you want to continue")
+        else:
+            log.error("trying to continue, hope for timeline")
+def GPIO_safe_input(pin):
+    try:
+        return GPIO.input(pin)
+    except:
+        return False
+
 
 # LED uses hardware PWM, taken care of by the gpiozero module
 try:
@@ -122,7 +133,7 @@ monitor = None
 def wait_for_lo (stop_event):
     global status, log
     #t0 = time.time() # could implement LO timeout, but we don't need it
-    while (not GPIO.input(STATUS_PINS['LO'])) \
+    while (not GPIO_safe_input(STATUS_PINS['LO'])) \
         and not stop_event.is_set():
         log.debug("waiting for lift off")
         time.sleep(1)
@@ -258,7 +269,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                 except RuntimeError as e:
                     camera = None
                     log.error("camera error "+str(e))
-            while not GPIO.input(STATUS_PINS['mug']):
+            while not GPIO_safe_input(STATUS_PINS['mug']):
                 log.info("waiting for microgravity")
                 time.sleep(0.5)
                 if time.time() - t0 >= SOE_TIMEOUT:
@@ -280,13 +291,13 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         global status, manual_lift_off, log
         #signal.alarm(EXP_TIMEOUT)
         t0 = time.time()
-        while MUG_STICKY or GPIO.input(STATUS_PINS['mug']) or manual_lift_off:
+        while MUG_STICKY or GPIO_safe_input(STATUS_PINS['mug']) or manual_lift_off:
             time.sleep(1)
             if time.time() - t0 >= EXP_TIMEOUT:
                 log.info("SOE OFF by timeout")
                 tlog.info("SOE OFF timeout")
                 break
-        status['mug'] = MUG_STICKY or bool(GPIO.input(STATUS_PINS['mug'])) \
+        status['mug'] = MUG_STICKY or bool(GPIO_safe_input(STATUS_PINS['mug'])) \
                         or manual_lift_off
         log.info("END OF MUG")
         tlog.info("END MUG")
