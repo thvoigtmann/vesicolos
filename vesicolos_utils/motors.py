@@ -19,6 +19,7 @@ class myServo(Servo):
     GOAL_SPEED = 0x2E
     PRESENT_POSITION = 0x38
     PRESENT_SPEED = 0x3A
+    PRESENT_LOAD = 0x3C
     PRESENT_VOLTAGE = 0x3E
     PRESENT_TEMPERATURE = 0x3F
     MOVING = 0x42
@@ -35,6 +36,11 @@ class myServo(Servo):
         return self.sram.read_current_location()
     def SyncReadPresentPosition(self, servo_ids):
         return self.controller.broadcast.sram.sync_read_current_location(servo_ids)
+    def ReadPresentLoad(self):
+        return self.sram.read_current_load()
+    def SyncReadPresentLoad(self, servo_ids):
+        return self.controller.broadcast.sram.sync_read_current_load(servo_ids)
+
     def WriteTargetPosition(self, pos):
         # FIXME: copied this from the old code, but maybe this was not needed
         # and we simply need to wait for the movement to finish
@@ -70,6 +76,8 @@ class myServo(Servo):
         return self._write_memory(self.MODE, mode)
     def setMiddle(self):
         return self.sram.correct_position_to_2048()
+    def enableTorque(self):
+        return self.sram.torque_enable()
 
 
 
@@ -105,6 +113,7 @@ class MotorController:
         self.log = log
         self.serial_lock = threading.Lock()
         self.current_set_speed = {}
+        self.current_torque = {}
         try:
             self.scan(device, axes_map, motorconf, max_id)
         except Exception as e:
@@ -140,6 +149,7 @@ class MotorController:
                 if axis:
                     self._servos[axis] = servo
                     self.current_set_speed[axis] = servo.ReadPresentSpeed()
+                    self.current_torque[axis] = servo.ReadPresentLoad()
             found_all_axes = True
             for ax in sorted(list(set(axes_map.values()))):
                 if ax in self._servos:
@@ -161,14 +171,17 @@ class MotorController:
         #print(self._servos)
 
         self.motorconf = motorconf
-        # sanitize motorconf
+        # sanitize motorconf: copy over defaults to the individual axes
+        # unless they override it
         motorconf_default = self.motorconf.get('_default_',{})
         for ax in self.axes:
             if not ax in self.motorconf:
                 self.motorconf[ax] = {}
-            for key in ['SPEED_INC']: # we rely on the presence of those
+            for key in ['SPEED_INC', 'MAX_TORQUE']:
                 if not key in self.motorconf[ax]:
                     self.motorconf[ax][key] = motorconf_default.get(key,0)
+        # set torque limit for the motors
+        self.torque_control(enable=True)
 
     def __enter__ (self):
         return self
@@ -176,6 +189,7 @@ class MotorController:
         self.log.debug("stopping all motors")
         self.stop_all()
         self.wheel_mode()
+        self.torque_control(enable=False)
         if self.controller:
             self.log.debug("closing motor controller")
             self.controller.close()
@@ -252,6 +266,19 @@ class MotorController:
                 pos = self._servos[axis].ReadPresentPosition()
             return pos
         return None
+    def read_torque (self, axis=''):
+        if not self.controller:
+            return None
+        if not axis:
+            with self.serial_lock:
+                torque = self.controller.broadcast.SyncReadPresentLoad(self.axes_map.keys())
+            torque = {self.axes_map[i]: torque[i] for i in torque}
+            return torque
+        elif axis in self.axes:
+            with self.serial_lock:
+                torque = self._servos[axis].ReadPresentLoad()
+            return torque
+        return None
     def wheel_mode (self, axis='', wheel=True):
         """Set motor specified by `axis` to wheel mode.
         If `axis==''` (default), apply to all axes."""
@@ -264,6 +291,25 @@ class MotorController:
         elif axis in self.axes:
             with self.serial_lock:
                 self._servos[axis].setWheelMode(wheel)
+    def torque_control (self, axis='', enable=True):
+        """Set motor specified by `axis` to torque control."""
+        if not axis:
+            with self.serial_lock:
+                for ax in self.axes:
+                    if enable:
+                        self._servos[ax].sram.torque_enable()
+                        self._servos[ax].sram.write_torque_limit(
+                                self.motorconf[ax]['MAX_TORQUE'])
+                    else:
+                        self._servos[ax].sram.torque_disable()
+        elif axis in self.axes:
+            with self.serial_lock:
+                if enable:
+                    self._servos[axis].sram.torque_enable()
+                    self._servos[axis].sram.write_torque_limit(
+                            self.motorconf[axis]['MAX_TORQUE'])
+                else:
+                    self._servos[axis].sram.torque_disable()
     def set_middle (self, axis=''):
         """Reset motor position specified by `axis` to middle."""
         if not axis:
@@ -425,11 +471,12 @@ class ServoMonitor():
                 else:
                     velinfo = 'ERROR'
                 velsetinfo = '  '.join([ ax + f' {self.motors.current_set_speed[ax]:4d}' for ax in self.motors.current_set_speed ])
+                torqueinfo = '  '.join([ ax + f' {trq:4d}' for ax,trq in self.motors.read_torque().items() ])
                 flags = ' '.join([f"{k} {int(v)}" for k,v in self.status.items()])
                 self.statusbar(
-                        f"| CPU TEMP {cpu_temp:.2f} SAMPLE TEMP {sample_temp:.2f} D {self.t_init_str} +{int(self.next_t-self.t_init):6d}s\n"
-                        f"| POS {posinfo} {flags} {es}\n"
-                        f"| VEL {velinfo} SETVEL {velsetinfo}"
+                        f"| CPU T={cpu_temp:.2f} SAMPLE T={sample_temp:.2f} D {self.t_init_str} +{int(self.next_t-self.t_init):5d}s {flags} {es}\n"
+                        f"| POS {posinfo} TRQ {torqueinfo}\n"
+                        f"| VEL {velinfo} SET {velsetinfo}"
                 )
                 self.log.info(f"{sample_temp} {posinfo} {velinfo} {flags}")
             while self.next_t < time.time():

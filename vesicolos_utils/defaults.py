@@ -32,7 +32,7 @@ MOTOR_DZ_WAIT = 0.1            # in seconds, wait time at each step
 MOTOR_TIMEOUT = 30              # seconds until motor stop in unattended UI mode
 # TODO also add a configurable torque limit, probably per axis (and direction?)
 SERVOS = {
-  '_default_': { 'SPEED_INC': 200 },
+  '_default_': { 'SPEED_INC': 200, 'MAX_TORQUE': 200 },
   'Z': { 'SPEED_INC': 40, 'MAX_WRAP': 1 }
 }
 # mapping of keys to control the Cartesian axes and their directions

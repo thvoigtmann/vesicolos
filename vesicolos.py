@@ -187,9 +187,8 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
 
     threading.Thread(target=save_restart,args=[prog_end,RESTARTFILE,STATE_VARS]).start()
 
-    for ax in motor_controller.axes:
-        # TODO FIXME
-        print("max torque",ax,motor_controller._servos[ax].eeprom.read_max_torque())
+    #for ax in motor_controller.axes:
+    #    print("max torque",ax,motor_controller._servos[ax].eeprom.read_max_torque())
 
     ## PHASE 1: USER INTERACTION BEFORE LIFT OFF
 
