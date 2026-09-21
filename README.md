@@ -37,6 +37,9 @@ hardware setup:
   controlled by a Waveshare driver.
   - Stage movement (X/Y): 2.3mm per turn of 4096 steps
   - Focus movement (Z): 0.1mm per turn of 4096 steps
+- The camera was measured to have a resolution of around 25px/mu,
+  see the calibration image in `tests/mu2.jpg` (spacing between the
+  lines is 10mu).
 
 Raspberry GPIO pin layout (using GPIO numbers, not physical pin numbers):
 
