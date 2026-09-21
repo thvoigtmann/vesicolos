@@ -417,7 +417,7 @@ class ServoMonitor():
                 else:
                     sample_temp = -1
                 if self.pos is not None:
-                    posinfo = '  '.join([ ax + f' {self.pos[ax]:4d} ({self.wrap[ax]:2d})' for ax in self.pos ])
+                    posinfo = '  '.join([ ax + f' {self.pos[ax] or -1:4d} ({self.wrap[ax]:2d})' for ax in self.pos ])
                 else:
                     posinfo = 'ERROR'
                 if self.vel is not None:
@@ -470,7 +470,7 @@ class ServoMonitor():
                         self.wrap[ax] += 1
                     if set_vel<0 and self.pos[ax] < Motors.ST_STEPS/2 and newpos[ax] > self.pos[ax]:
                         self.wrap[ax] -= 1
-                    if set_vel==0:
+                    if set_vel==0 and newpos[ax] is not None:
                         if newpos[ax] < 100 and self.pos[ax] > Motors.ST_STEPS-100:
                             self.wrap[ax] += 1
                         if newpos[ax] > Motors.ST_STEPS-100 and self.pos[ax] < 100:
