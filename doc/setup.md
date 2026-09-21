@@ -24,11 +24,11 @@ we sync these changes back into the main tree, which we sync with github.
 
 The github `.git/config` then has these entries:
 ```
-[remote "vlocal"]
-        url = tv@192.168.100.42:tmp/downloads/v/vesicolos.git
-        fetch = +refs/heads/*:refs/remotes/origin/*
 [remote "origin"]
         url = git@github.com:thvoigtmann/vesicolos.git
+        fetch = +refs/heads/*:refs/remotes/origin/*
+[remote "vlocal"]
+        url = tv@192.168.100.42:tmp/downloads/v/vesicolos.git
         fetch = +refs/heads/*:refs/remotes/origin/*
 ```
 
