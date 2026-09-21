@@ -22,6 +22,16 @@ Thus, if changes are made directly on the flight hardware, we need to
 push them to the connected EGSE computer at some point. Then there,
 we sync these changes back into the main tree, which we sync with github.
 
+The github `.git/config` then has these entries:
+```
+[remote "vlocal"]
+        url = tv@192.168.100.42:tmp/downloads/v/vesicolos.git
+        fetch = +refs/heads/*:refs/remotes/origin/*
+[remote "origin"]
+        url = git@github.com:thvoigtmann/vesicolos.git
+        fetch = +refs/heads/*:refs/remotes/origin/*
+```
+
 # Flight Hardware network
 
 The VESCIOLOS Raspberry is normally hard-wired to the IP address
