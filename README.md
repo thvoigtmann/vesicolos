@@ -50,8 +50,8 @@ Raspberry GPIO pin layout (using GPIO numbers, not physical pin numbers):
 | GPIO 9  | SPI MISO  | standard                                |
 | GPIO 10 | SPI MOSI  | standard                                |
 | GPIO 11 | SPI CLK   | standard                                |
-| GPIO 12 | PWM1      | LED                                     |
-| GPIO 13 | PWM2      | heater                                  |
+| GPIO 12 | PWM1      | heater                                  |
+| GPIO 13 | PWM2      | LED                                     |
 | GPIO 17 | LO        | lift off from MOSAIC                    |
 | GPIO 23 | mug       | microgravity detection from MOSAIC      |
 
@@ -84,17 +84,22 @@ Raspberry GPIO pin layout (using GPIO numbers, not physical pin numbers):
 
 # Software Installation
 
-The contents of this repository should be placed into
-`~/Desktop/vesicolos` such that the script `~/Desktop/vesicolos/start.sh`
-can be found.
+Clone the repository, into `~/Desktop`:
+```bash
+git clone git@github.com:thvoigtmann/vesicolos.git
+git submodule update --init
+```
+The script `~/Desktop/vesicolos/start.sh` needs to be found by the
+autostart mechanism.
 
-Inside this folder, a python virtual environment needs to be created
+Inside the `vesicolos` folder, a python virtual environment needs to be created
 as follows:
 ```bash
 python3 -m venv --system-site-packages venv
 . venv/bin/activate
+pip install -r requirements.txt
 ```
-Then install the required python libraries found in `requirements.txt`.
+This should install the required python libraries found in `requirements.txt`.
 For the `lgpio` library on the Raspberry 5, we found it necessary to first
 install `lg` from https://abyz.me.uk/lg/download.html (follow instructions
 there). The important packages that do not come with the raspberry install

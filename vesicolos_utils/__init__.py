@@ -1,6 +1,7 @@
 import time, os, sys, glob, re
 import logging
 import json
+import gpiod
 
 from .getkey import getkey, Keys
 
@@ -137,6 +138,22 @@ def detect_rpi_model ():
     except:
         pass
     return None
+
+def detect_gpio_chip ():
+    found = None
+    for i in [0,4,15]:
+        device = f'/dev/gpiochip{i}'
+        print("D",device)
+        try:
+            print("C")
+            chip = gpiod.Chip(device)
+            print("CC")
+            print(chip.get_info())
+            if chip.get_info().label == 'pinctrl-rp1':
+                found = i
+        except:
+            pass
+    return found
 
 def make_camera_key (recordings, key, pre=''):
     """Generate a unique key for a new camera recording, avoiding those

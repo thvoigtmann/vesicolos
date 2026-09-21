@@ -3,3 +3,6 @@ adafruit-circuitpython-max31865
 gpiozero
 pyserial
 rpi-lgpio
+gpiod
+#
+psutil

@@ -4,22 +4,15 @@ import threading, signal
 import json
 import logging, errno
 
-try:
-    import RPi.GPIO as GPIO
-except Exception as e:
-    if os.environ.get("NO_GPIO"):
-        import Mock.GPIO as GPIO
-    else:
-        raise e
-import gpiozero                            # used for PWM (LED and heater)
+import gpiozero                            # used for PWM (LED and heater), GPIO
 import board, digitalio, adafruit_max31865 # used for temperature sensor
-GPIO.setmode(GPIO.BCM)
+#GPIO.setmode(GPIO.BCM)
 
 # local repositories
 sys.path.append('python-st3215/src')
 sys.path.append('.')
 from python_st3215 import ST3215
-from vesicolos_utils import getkey,kill_proc_by_name,DummyGPIO
+from vesicolos_utils import getkey,kill_proc_by_name,DummyGPIO,detect_gpio_chip
 from vesicolos_utils import logSetup, load_restart, save_restart, load_flight_config, detect_rpi_model, make_camera_key
 import vesicolos_utils.motors as vm
 import vesicolos_utils.temperature as vt
@@ -61,11 +54,19 @@ stop = False
 manual_lift_off = False
 
 # GPIO signals
+gpionum = detect_gpio_chip()
+if gpionum is None:
+    log.error("FATAL cannot access GPIO")
+    input("confirm if you want to continue")
+else:
+    from gpiozero.pins.lgpio import LGPIOFactory
+    gpiozero.Device.pin_factory = LGPIOFactory(chip=gpionum)
+
 status = { _: False for _ in STATUS_PINS }
+gpio_input = {}
 for sig,pin in STATUS_PINS.items():
     try:
-        GPIO.setup(pin, GPIO.IN)
-        ups()
+        gpio_input[pin] = gpiozero.InputDevice(pin)
     except Exception as e:
         log.error(f"GPIO pin '{pin}' for signal '{sig}' unavailable!?")
         if sig == 'LO':
@@ -75,7 +76,7 @@ for sig,pin in STATUS_PINS.items():
             log.error("trying to continue, hope for timeline")
 def GPIO_safe_input(pin):
     try:
-        return GPIO.input(pin)
+        return gpio_input[pin].is_active
     except:
         return False
 
