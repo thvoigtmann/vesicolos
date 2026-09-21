@@ -15,11 +15,6 @@ import gpiozero                            # used for PWM (LED and heater)
 import board, digitalio, adafruit_max31865 # used for temperature sensor
 GPIO.setmode(GPIO.BCM)
 
-try:
-    import picamera2
-except:
-    print("picamera2 not available, continuing without camera control")
-
 # local repositories
 sys.path.append('python-st3215/src')
 sys.path.append('.')
@@ -67,8 +62,23 @@ manual_lift_off = False
 
 # GPIO signals
 status = { _: False for _ in STATUS_PINS }
-for pin in STATUS_PINS.values():
-    GPIO.setup(pin, GPIO.IN)
+for sig,pin in STATUS_PINS.items():
+    try:
+        GPIO.setup(pin, GPIO.IN)
+        ups()
+    except Exception as e:
+        log.error(f"GPIO pin '{pin}' for signal '{sig}' unavailable!?")
+        if sig == 'LO':
+            log.error("FATAL cannot detect LO")
+            input("confirm that you want to continue")
+        else:
+            log.error("trying to continue, hope for timeline")
+def GPIO_safe_input(pin):
+    try:
+        return GPIO.input(pin)
+    except:
+        return False
+
 
 # LED uses hardware PWM, taken care of by the gpiozero module
 try:
@@ -123,7 +133,7 @@ monitor = None
 def wait_for_lo (stop_event):
     global status, log
     #t0 = time.time() # could implement LO timeout, but we don't need it
-    while (not GPIO.input(STATUS_PINS['LO'])) \
+    while (not GPIO_safe_input(STATUS_PINS['LO'])) \
         and not stop_event.is_set():
         log.debug("waiting for lift off")
         time.sleep(1)
@@ -158,7 +168,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
 
     # TODO FIXME not ServoMonitor, this is a general monitor
     # give it also the temperature sensor
-    monitor = vm.ServoMonitor(motor_controller,temp_sensor,log=tlog,increment=MONITOR_INTERVAL,state=STATE_VARS,global_status=status)
+    monitor = vm.ServoMonitor(motor_controller,temp_sensor,led,heater,log=tlog,increment=MONITOR_INTERVAL,state=STATE_VARS,global_status=status)
     # the monitor will set state_valid to False is the positions read
     # from the restart file don't match the ones read from the motors
     if not monitor.state_valid:
@@ -191,7 +201,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         tlog.info("# WAITING FOR LO")
         stop_event = threading.Event()
         threading.Thread(target=wait_for_lo,args=[stop_event]).start()
-        with CLI(motor_controller=motor_controller,monitor=monitor,led=led,heater=heater,keymap=keymap,movement_map=SERVO_CMDS,state=STATE_VARS) as cli:
+        with CLI(motor_controller=motor_controller,monitor=monitor,led=led,heater=heater,keymap=keymap,movement_map=SERVO_CMDS,state=STATE_VARS,camfile=camfile,ptsfile=ptsfile) as cli:
             threading.Thread(target=cli.start,args=[stop_event]).start()
     
             try:
@@ -253,10 +263,13 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                     camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff_auto'})
                     threading.Thread(target=camera.record).start()
                     led.on()
+                except ModuleNotFoundError as e:
+                    camera = None
+                    log.error('camera module missing! '+str(e))
                 except RuntimeError as e:
                     camera = None
                     log.error("camera error "+str(e))
-            while not GPIO.input(STATUS_PINS['mug']):
+            while not GPIO_safe_input(STATUS_PINS['mug']):
                 log.info("waiting for microgravity")
                 time.sleep(0.5)
                 if time.time() - t0 >= SOE_TIMEOUT:
@@ -278,13 +291,13 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         global status, manual_lift_off, log
         #signal.alarm(EXP_TIMEOUT)
         t0 = time.time()
-        while MUG_STICKY or GPIO.input(STATUS_PINS['mug']) or manual_lift_off:
+        while MUG_STICKY or GPIO_safe_input(STATUS_PINS['mug']) or manual_lift_off:
             time.sleep(1)
             if time.time() - t0 >= EXP_TIMEOUT:
                 log.info("SOE OFF by timeout")
                 tlog.info("SOE OFF timeout")
                 break
-        status['mug'] = MUG_STICKY or bool(GPIO.input(STATUS_PINS['mug'])) \
+        status['mug'] = MUG_STICKY or bool(GPIO_safe_input(STATUS_PINS['mug'])) \
                         or manual_lift_off
         log.info("END OF MUG")
         tlog.info("END MUG")
@@ -310,7 +323,10 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
     def microgravity_experiment (Tcontrol):
         positions = sorted(STATE_VARS['user.positions'].keys() or ['default'])
         log.info("mug sequence: positions "+" / ".join(positions))
-        led.on()
+        if led is not None:
+            led.on()
+        else:
+            log.error('there is no light!!')
         recordings = []
         while status['mug'] or manual_lift_off:
             for pos in positions:
@@ -319,6 +335,9 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                 try:
                     camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
                     threading.Thread(target=camera.record).start()
+                except ModuleNotFoundError as e:
+                    camera = None
+                    log.error('camera module missing! '+str(e))
                 except RuntimeError as e:
                     camera = None
                     log.error('camera error '+str(e))

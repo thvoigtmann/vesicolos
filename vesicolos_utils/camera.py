@@ -1,8 +1,8 @@
-import picamera2
-
 # camera controller, used later
 class CameraController ():
     def __init__ (self, filename, pts=None, keys={}):
+        self.picam = None
+        import picamera2
         self.stop_ = False
         self.imgpath = filename
         self.imgpath_keys = keys
@@ -14,6 +14,8 @@ class CameraController ():
     def __del__ (self):
         self.stop()
     def record (self):
+        if not self.picam:
+            return
         frame = 0 # would only be needed if we write single frames ourselves
         imgfile = self.imgpath.format(**{'frame':frame,**self.imgpath_keys})
         pts = self.ptsfile.format(**self.imgpath_keys)
@@ -24,6 +26,7 @@ class CameraController ():
         # be callable)
     def stop (self):
         self.stop_ = True
-        self.picam.stop_recording()
-        print("STOP cam recording")
-        self.picam.close()
+        if self.picam:
+            self.picam.stop_recording()
+            print("STOP cam recording")
+            self.picam.close()
