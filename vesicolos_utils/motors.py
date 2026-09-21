@@ -113,7 +113,6 @@ class MotorController:
         self.log = log
         self.serial_lock = threading.Lock()
         self.current_set_speed = {}
-        self.current_torque = {}
         try:
             self.scan(device, axes_map, motorconf, max_id)
         except Exception as e:
@@ -149,7 +148,6 @@ class MotorController:
                 if axis:
                     self._servos[axis] = servo
                     self.current_set_speed[axis] = servo.ReadPresentSpeed()
-                    self.current_torque[axis] = servo.ReadPresentLoad()
             found_all_axes = True
             for ax in sorted(list(set(axes_map.values()))):
                 if ax in self._servos:
@@ -243,7 +241,7 @@ class MotorController:
             if res and not res['error']:
                 pass
             if wait_moving or not wait_moving: #FIXME
-                timeout = 2
+                timeout = 5
                 start_time = time.time()
                 while self._servos[axis].isMoving():
                     if time.time() - start_time > timeout:
@@ -328,17 +326,15 @@ class MotorController:
         axes, each storing a tuple of `(pos,wrap)` targets.
         `wrap` needs to be a dict with axes as keys, indicating the
         current wrap counter for that axis."""
+        # current and target positions are in wheel mode
+        # we can also get the current position in servo mode
         # to go to a defined position:
-        # 1. calculate delta in wheel mode
+        # 1. calculate delta(target,current) in wheel mode
         # 2. go to servo mode, set current as middle position 2048
+        #    this does not change the wheel-mode position
         # 3. move to 2048+delta
         #    possibly first a multiple of 7 turns if delta too large
         # 4. go to wheel mode
-        # FIXME no longer sure about the logic here: if we set the middle
-        # position in servo mode, does this affect the position in wheel mode?
-        # if so, this messes up all subsequent positions
-        # but I think we needed it to reset the internal wrap counter
-        # of the servo
         # FIXME use serial_lock when needed, but maybe we can use our own API
         try:
             success = self.monitor.update_pos()
@@ -420,7 +416,7 @@ class ServoMonitor():
         self.increment = increment
         self.pos = state.get('motor.pos',{})
         self.wrap = state.get('motor.wrap',{})
-        success, pos, self.vel = self.read_pos_vel()
+        success, pos, self.vel, self.torque = self.read_pos_vel()
         # for pos, check if we have stored state variables
         # if we do, the positions must match, else the hardware is not
         # in a state that the state variables think it is, and this is
@@ -467,10 +463,10 @@ class ServoMonitor():
                 else:
                     posinfo = 'ERROR'
                 if self.vel is not None:
-                    velinfo = '  '.join([ ax + f' {self.vel[ax]:4d}' for ax in self.vel ])
+                    velinfo = '  '.join([ ax + f' {vel}' for ax,vel in self.vel.items() ])
                 else:
                     velinfo = 'ERROR'
-                velsetinfo = '  '.join([ ax + f' {self.motors.current_set_speed[ax]:4d}' for ax in self.motors.current_set_speed ])
+                velsetinfo = '  '.join([ ax + f' {vset:4d}' for ax,vset in self.motors.current_set_speed.items()])
                 torqueinfo = '  '.join([ ax + f' {trq:4d}' for ax,trq in self.motors.read_torque().items() ])
                 flags = ' '.join([f"{k} {int(v)}" for k,v in self.status.items()])
                 self.statusbar(
@@ -484,46 +480,33 @@ class ServoMonitor():
             threading.Timer(self.next_t - time.time(), self._run).start()
     def read_pos_vel (self):
         success = True
-        #newpos = { _:0 for _ in self.motors.axes }
-        #newvel = { _:0 for _ in self.motors.axes }
-        #for ax in self.motors.axes:
-        #    try:
-        #        newpos[ax] = self.motors.read_position(ax)
-        #        newvel[ax] = self.motors.get_speed(ax)
-        #    except:
-        #        success = False
-        #    if newpos[ax] is None or newvel[ax] is None:
-        #        success = False
         try:
             newpos = self.motors.read_position()
             newvel = self.motors.get_speed()
+            newtrq = self.motors.read_torque()
         except PortNotOpenError as e:
             success = False
             newpos = { _:None for _ in self.motors.axes }
             newvel = { _:None for _ in self.motors.axes }
+            newtrq = { _:None for _ in self.motors.axes }
             pass
         #TODO FIXME how to read comm error?
         #success &= motorDriver.success(comm, err)
         #how to handle this
-        return success, newpos, newvel
+        return success, newpos, newvel, newtrq
     # update: query the motor positions, try to detect wrap-arounds
     def update_pos (self,detect_wrap=True):
-        success, newpos, newvel = self.read_pos_vel()
+        success, newpos, newvel, newtrq = self.read_pos_vel()
         if success:
             for ax in self.motors.axes:
                 if detect_wrap:
-                    set_vel = self.motors.current_set_speed[ax]
-                    if set_vel>0 and self.pos[ax] > Motors.ST_STEPS/2 and newpos[ax] < self.pos[ax]:
+                    if self.pos[ax] > Motors.ST_STEPS-Motors.ST_STEPS/4 and newpos[ax] < Motors.ST_STEPS/4:
                         self.wrap[ax] += 1
-                    if set_vel<0 and self.pos[ax] < Motors.ST_STEPS/2 and newpos[ax] > self.pos[ax]:
+                    elif self.pos[ax] < Motors.ST_STEPS/4 and newpos[ax] > Motors.ST_STEPS-Motors.ST_STEPS/4:
                         self.wrap[ax] -= 1
-                    if set_vel==0 and newpos[ax] is not None:
-                        if newpos[ax] < 100 and self.pos[ax] > Motors.ST_STEPS-100:
-                            self.wrap[ax] += 1
-                        if newpos[ax] > Motors.ST_STEPS-100 and self.pos[ax] < 100:
-                            self.wrap[ax] -= 1
                 self.pos[ax] = newpos[ax]
                 self.vel[ax] = newvel[ax]
+                self.torque[ax] = newtrq[ax]
         return success
     def stop (self):
         self.done = True

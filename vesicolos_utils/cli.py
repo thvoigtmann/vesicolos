@@ -257,6 +257,7 @@ class CLI:
         """set current working axis"""
         if ax in self.motor_controller.axes:
             self.current_axis = ax
+            print ("controlling axis",ax)
     def query_position(self):
         """query motor positions"""
         self.motor_controller.stop_all()
@@ -270,6 +271,8 @@ class CLI:
         self.motor_controller.wheel_mode(axis='',wheel=True)
         print ("current position (wheel)",wheelpos)
         print ("current position (servo)",servopos)
+        delta = { ax: wheelpos[ax]-servopos[ax] for ax in wheelpos }
+        print ("delta",delta)
         self.monitor.start()
     def toggle_led(self):
         """toggle LED"""
