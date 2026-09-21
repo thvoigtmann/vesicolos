@@ -1,3 +1,6 @@
+TESTS that came up during bench test M17:
+- check for motor holding (periodic current peaks) if payload is on its side?
+
 - check the bug with VNC and rpicam-vid
   - idea: rpicam-vid -t 100000000 -l -o tcp://0.0.0.0:3333
   - and on client vlc tcp/h264://192.168.100.12:3333
