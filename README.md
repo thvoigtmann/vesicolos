@@ -95,11 +95,13 @@ autostart mechanism.
 Inside the `vesicolos` folder, a python virtual environment needs to be created
 as follows:
 ```bash
-python3 -m venv --system-site-packages venv
+python3 -m venv venv
 . venv/bin/activate
 pip install -r requirements.txt
 ```
 This should install the required python libraries found in `requirements.txt`.
+(You can experiment with giving `--system-site-packages` when creating
+the virtual environment.)
 For the `lgpio` library on the Raspberry 5, we found it necessary to first
 install `lg` from https://abyz.me.uk/lg/download.html (follow instructions
 there). The important packages that do not come with the raspberry install
