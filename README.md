@@ -100,9 +100,8 @@ install `lg` from https://abyz.me.uk/lg/download.html (follow instructions
 there). The important packages that do not come with the raspberry install
 should be
 ```bash
-adafruit-circuitpython-max31865 gpiozero lgpio rpi-lgpio pyserial
+adafruit-circuitpython-max31865 gpiozero rpi-lgpio pyserial
 ```
-(TODO: check whether `lgpio` is still used)
 
 The file in `autostart` needs to be copied into `~/.config/autostart/`.
 This should make the vesicolos python program automatically start once

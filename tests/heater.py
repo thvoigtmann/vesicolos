@@ -2,6 +2,9 @@ import RPi.GPIO as GPIO
 import gpiozero
 import time
 
+#from gpiozero.pins.lgpio import LGPIOFactory
+#gpiozero.Device.pin_factory = LGPIOFactory(chip=0)
+
 GPIO_HEATER = 12
 GPIO_LED = 13
 

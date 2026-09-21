@@ -1,10 +1,5 @@
 #Mock.GPIO==0.2.0
-RPi.GPIO==0.7.1
-adafruit-circuitpython-connectionmanager==3.1.6
-adafruit-circuitpython-max31865==2.2.26
-#ansi==0.3.7
-board==1.0
-gpiozero==2.0.1
-h11==0.16.0
-picamera2==0.3.34
-pidng==4.0.9
+adafruit-circuitpython-max31865
+gpiozero
+pyserial
+rpi-lgpio
