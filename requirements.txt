@@ -4,5 +4,6 @@ gpiozero
 pyserial
 rpi-lgpio
 gpiod
+picamera2
 #
 psutil

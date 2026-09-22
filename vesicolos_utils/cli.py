@@ -1,6 +1,8 @@
 import logging, time, os, sys
 from vesicolos_utils import getkey, Keys, make_camera_key
-from vesicolos_utils.camera import CameraController
+from vesicolos_utils.camera import CameraController, CameraStream
+
+from vesicolos_utils.defaults import VIDEO_IP
 
 
 
@@ -254,25 +256,25 @@ class CLI:
         self.motor_controller.stop_all()
         time.sleep(0.2)
         self.motor_controller.set_middle(self.current_axis)
-    def set_velocity (self):
-        """set the velocity of a motor by hand"""
-        if not self.current_axis in self.motor_controller.axes:
-            print ("no workable axis set")
-            return
-        ax = self.current_axis
-        self.motor_controller.stop_all()
-        self.monitor.stop()
-        velstr = input('velocity? ')
-        try:
-            vel = int(velstr)
-        except ValueError:
-            print ("illegal input")
-            vel = None
-        if vel is not None:
-            res, rvel = self.motor_controller.set_speed(ax, vel, return_read=True)
-            print("rvel",rvel)
-            print("res",res)
-        self.monitor.start()
+    #def set_velocity (self):
+    #    """set the velocity of a motor by hand"""
+    #    if not self.current_axis in self.motor_controller.axes:
+    #        print ("no workable axis set")
+    #        return
+    #    ax = self.current_axis
+    #    self.motor_controller.stop_all()
+    #    self.monitor.stop()
+    #    velstr = input('velocity? ')
+    #    try:
+    #        vel = int(velstr)
+    #    except ValueError:
+    #        print ("illegal input")
+    #        vel = None
+    #    if vel is not None:
+    #        res, rvel = self.motor_controller.set_speed(ax, vel, return_read=True)
+    #        print("rvel",rvel)
+    #        print("res",res)
+    #    self.monitor.start()
     def set_axis (self, ax):
         """set current working axis"""
         if ax in self.motor_controller.axes:
@@ -364,6 +366,8 @@ class CLI:
             self.camera.stop()
             self.camera = None
         else:
+            if self.videostream is not None:
+                self.toggle_video_stream()
             ckey = make_camera_key (self.recordings, self.last_savepos or 'launch', pre='user_')
             self.recordings.append(ckey)
             try:
@@ -375,6 +379,20 @@ class CLI:
             except RuntimeError as e:
                 self.camera = None
                 self.log.error("could not start camera: "+str(e))
+    def toggle_video_stream(self):
+        """toggle network video stream"""
+        if self.videostream is not None:
+            self.videostream.stop()
+            self.videostream = None
+        else:
+            if self.camera is not None:
+                self.toggle_camera()
+            try:
+                self.videostream = CameraStream(target_ip=VIDEO_IP)
+                self.videostream.start()
+            except Exception as e:
+                self.videostream = None
+                self.log.error("could not start stream: "+str(e))
     def read_user_settings (self):
         return self.stored_positions, self.stored_temperatures
 
@@ -404,7 +422,8 @@ keymap = {
     ord('q'): (CLI.query_position,),
     ord('g'): (CLI.goto_position,),
     ord('m'): (CLI.set_middle,),
-    ord('v'): (CLI.set_velocity,),
+    #ord('v'): (CLI.set_velocity,),
+    ord('v'): (CLI.toggle_video_stream,),
     ord('l'): (CLI.toggle_led,),
     ord('h'): (CLI.toggle_heater,),
     ord('t'): (CLI.enter_temperature_ramp,),

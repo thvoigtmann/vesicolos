@@ -63,6 +63,8 @@ CAMFILE = 'capture-{pos}.h264' # could use {frame:06d} or something
 PTSFILE = 'capture-{pos}-pts.txt'
 # name of rpicam process to kill if the user started it separately
 RPICAM_PROCESS = 'rpicam-vid'
+# IP to stream video to
+VIDEO_IP = '192.168.100.42'
 
 
 ## HARDWARE SETTINGS

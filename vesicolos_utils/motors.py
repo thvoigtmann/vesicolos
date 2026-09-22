@@ -562,7 +562,7 @@ class ServoMonitor():
         success, newpos, newvel, newtrq = self.read_pos_vel()
         if success:
             for ax in self.motors.axes:
-                if detect_wrap:
+                if detect_wrap and self.pos[ax] is not None and newpos[ax] is not None:
                     if self.pos[ax] > Motors.ST_STEPS-Motors.ST_STEPS/4 and newpos[ax] < Motors.ST_STEPS/4:
                         self.wrap[ax] += 1
                     elif self.pos[ax] < Motors.ST_STEPS/4 and newpos[ax] > Motors.ST_STEPS-Motors.ST_STEPS/4:

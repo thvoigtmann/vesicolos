@@ -8,6 +8,10 @@ TESTS that came up during bench test M17:
     ssh into the box and taking over
   - looks like we could just run in `screen` ?
 
+try setting up multicast:
+sudo ip addr add 224.0.0.1 dev eth0 autojoin
+rpicam-vid --low-latency --level 4.2 --framerate 30 --width 640 --height 480 -t 0 --denoise cdn_off -n -o udp://192.168.100.42:3333
+
 hardware
 - sensor to code home position and absolute positions of stage
 - stoppers at end to not make stage fall off
