@@ -164,11 +164,9 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
     # this is supposed to catch power cycles, in particular allowing for
     # the case where some positions to search are stored ahead of
     # integration into the rocket, or if lift-off causes a power cycle
-    # TODO FIXME if we crash while the motors are moving, what happens?
+    # TODO if we crash while the motors are moving, what happens?
     load_restart (STATE_VARS, RESTARTFILE, log)
 
-    # TODO FIXME not ServoMonitor, this is a general monitor
-    # give it also the temperature sensor
     monitor = vm.ServoMonitor(motor_controller,temp_sensor,led,heater,log=tlog,increment=MONITOR_INTERVAL,state=STATE_VARS,global_status=status)
     # the monitor will set state_valid to False is the positions read
     # from the restart file don't match the ones read from the motors
@@ -351,30 +349,29 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                 tmax = STATE_VARS['user.temperatures'].get(pos,{}).get('tmax',TMAX_DEFAULT)
                 tmax = tmax + time.time()
                 if do_zstack and ('Z' in motor_controller.axes):
-                    motor_controller.wheel_mode('Z',wheel=False)
                     # do_zstack shall only be true if we don't have
                     # motor errors
-                    # TODO FIXME
-                    #do_zstack &= motorDriver.success(comm, err)
-                    time.sleep(0.2)
-                    motor_controller.set_middle('Z')
-                    #do_zstack &= motorDriver.success(comm, err)
-                    time.sleep(0.2)
-                    # after set middle, motor is in servo mode, pos 2048
-                    # set zpos to highest position first
-                    # TODO FIXME FIXME this relies on the fact that we
-                    # can fiddle with the position in servo mode but this
-                    # doesn't destroy the wheel mode positions that we
-                    # use for recalling stored positions
-                    # do we really need this???
-                    # can we not just read the current position and
-                    # rely on the fact that it will be within 4096
-                    # and thus the following code should work if we
-                    # replace 2048 by the current position??
-                    zpos = 2048 + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
-                    zcnt = 0
-                    zdirection = -1
-                    motor_controller.goto_position('Z',zpos)
+                    try:
+                        motor_controller.wheel_mode('Z',wheel=False)
+                        time.sleep(0.2)
+                        motor_controller.set_middle('Z')
+                        time.sleep(0.2)
+                        # after set middle, motor is in servo mode, pos 2048
+                        # set zpos to highest position first
+                        # NOTE this relies on the fact that we
+                        # can fiddle with the position in servo mode but this
+                        # doesn't destroy the wheel mode positions that we
+                        # use for recalling stored positions
+                        # TODO can we not just read the current position and
+                        # rely on the fact that it will be within 4096
+                        # and thus the following code should work if we
+                        # replace 2048 by the current position??
+                        zpos = 2048 + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
+                        zcnt = 0
+                        zdirection = -1
+                        motor_controller.goto_position('Z',zpos)
+                    except:
+                        do_zstack = False
                 while True:
                     if do_zstack:
                         if zcnt >= MOTOR_DZ_STEPS:
@@ -382,13 +379,19 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                             zcnt = 0
                         zcnt += 1
                         zpos += zdirection*MOTOR_DZ_STEPSIZE
-                        motor_controller.goto_position('Z',zpos)
+                        try:
+                            motor_controller.goto_position('Z',zpos)
+                        except:
+                            pass
                     time.sleep(MOTOR_DZ_WAIT)
                     if time.time() > tmax:
                         break
                 if do_zstack and ('Z' in motor_controller.axes):
-                    motor_controller.wheel_mode('Z',wheel=True)
-                    time.sleep(0.2)
+                    try:
+                        motor_controller.wheel_mode('Z',wheel=True)
+                        time.sleep(0.2)
+                    except:
+                        pass
                 if not camera is None:
                     camera.stop()
     

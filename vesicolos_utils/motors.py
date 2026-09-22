@@ -42,12 +42,11 @@ class myServo(Servo):
         return self.controller.broadcast.sram.sync_read_current_load(servo_ids)
 
     def WriteTargetPosition(self, pos):
-        # FIXME: copied this from the old code, but maybe this was not needed
+        # copied this from the old code, but maybe this was not needed
         # and we simply need to wait for the movement to finish
-        # problem: negative positions are not what I think they were
+        # problem: negative positions were not what I think they were
         acc = 50
         lo, hi = Word16(pos,bitsigned=True,safe_bound=True,bigendian=True).to_bytes()
-        print("LOHI",lo,hi)
         return self._write_memory(self.ACC,[acc,lo,hi,0,0,0,0])
         return self.sram.write_target_location(pos)
     def ReadPresentVoltage(self):
@@ -186,9 +185,9 @@ class MotorController:
     def __exit__ (self, exc_type, exc_value, traceback):
         self.log.debug("stopping all motors")
         self.stop_all()
-        self.wheel_mode()
-        self.torque_control(enable=False)
         if self.controller:
+            self.wheel_mode()
+            self.torque_control(enable=False)
             self.log.debug("closing motor controller")
             self.controller.close()
     def stop_all (self):
@@ -236,20 +235,23 @@ class MotorController:
     def goto_position (self, axis, pos, return_read=False, wait_moving=True):
         if not axis in self.axes:
             return None, None
+        self.torque_control(axis,enable=False)
         with self.serial_lock:
             res = self._servos[axis].WriteTargetPosition(pos)
             if res and not res['error']:
                 pass
-            if wait_moving or not wait_moving: #FIXME
-                timeout = 5
+            if wait_moving:
+                timeout = 120
                 start_time = time.time()
                 while self._servos[axis].isMoving():
                     if time.time() - start_time > timeout:
+                        print("moving timeout")
                         break
                     time.sleep(0.05)
             read_pos = None
             if return_read:
                 read_pos = self._servos[axis].ReadPresentPosition()
+        self.torque_control(axis,enable=True)
         return res, read_pos
     def read_position (self, axis=''):
         if not self.controller:
@@ -318,14 +320,13 @@ class MotorController:
         elif axis in self.axes:
             with self.serial_lock:
                 self._servos[axis].setMiddle()
-    # TODO FIXME
     def move_to_position (self, target_pos, wrap):
+        # FIXME TODO DEBUG
+        axes_ = ['Z'] # axes
         """Move all motors to the positions given in `target_pos`, taking into
-        account the wrap-around counters `wrap`.
+        account the wrap-around counters.
         `target_pos` needs to be a dict with keys corresponding to the
-        axes, each storing a tuple of `(pos,wrap)` targets.
-        `wrap` needs to be a dict with axes as keys, indicating the
-        current wrap counter for that axis."""
+        axes, each storing a tuple of `(pos,wrap)` targets."""
         # current and target positions are in wheel mode
         # we can also get the current position in servo mode
         # to go to a defined position:
@@ -335,64 +336,81 @@ class MotorController:
         # 3. move to 2048+delta
         #    possibly first a multiple of 7 turns if delta too large
         # 4. go to wheel mode
-        # FIXME use serial_lock when needed, but maybe we can use our own API
         try:
-            success = self.monitor.update_pos()
-            if not success:
-                raise Exception("failed updating position")
-            current_pos = self.monitor.pos
-            current_wrap = wrap
-            target_pos = { _: target_pos[_][0] for _ in self.axes }
-            target_wrap = { _: target_pos[_][1] for _ in self.axes }
-            print('current',current_pos,current_wrap)
-            print('target ',target_pos,target_wrap)
-            for ax in axes:
-                self.wheel_mode(ax, wheel=False)
-                time.sleep(0.2)
-                # TODO FIXME handle exception
-                #comm, err = motorDriver.SetMiddle(scs_id)
-                #if not motorDriver.success(comm, err):
-                #    raise Exception("failed setting motor reference pos")
-                delta_pos = target_pos[ax] - current_pos[ax]
-                delta_wrap = target_wrap[ax] - current_wrap[ax]
-                print('need delta',delta_pos,delta_wrap)
-                if 'MAX_WRAP' in self.motorconf[ax]:
-                    max_wrap = self.motorconf[ax]['MAX_WRAP']
-                    if abs(delta_wrap) > self.motorconf[ax]['MAX_WRAP']:
-                        self.log.error(f"axis {ax} should not move by {delta_wrap} turns, limiting to {max_wrap}")
-                    if delta_wrap > 0:
-                        delta_wrap = max_wrap
-                    else:
-                        delta_wrap = -max_wrap
-                if abs(delta_wrap) >= Motors.ST_MAX_WRAPS:
-                    direction = 1
-                    if delta_wrap < 0:
-                        direction = -1
-                    time.sleep(0.2)
-                    #FIXME
-                    #success = motorDriver.GotoPos(scs_id, \
-                    #      ST_MIDDLE + direction*ST_STEPS*(ST_MAX_WRAPS-1))
-                    #if not success:
-                    #    raise Exception("failed unwrapping")
-                    self.set_middle(ax) # FIXME
-                    #if not motorDriver.success(comm, err):
-                    #    raise Exception("failed re-setting motor reference pos")
-                    delta_wrap -= direction*(Motors.ST_MAX_WRAPS-1)
-                dpos = delta_pos + Motors.ST_STEPS*delta_wrap
-                self.goto_position(ax,Motors.ST_MIDDLE+dpos)
-                #if not success: FIXME
-                #    raise Exception("failed moving motor by delta steps")
-                time.sleep(0.2)
-                self.wheel_mode(ax, wheel=True)
-                time.sleep(0.2)
-                self.monitor.update_pos()
-                self.monitor.wrap[ax] = target_wrap[ax]
-                if self.monitor.pos[ax] < 100 and target_pos[ax] > Motors.ST_STEPS-100:
-                    self.monitor.wrap[ax] += 1
-                if self.monitor.pos[ax] > Motors.ST_STEPS-100 and target_pos[ax] > Motors.ST_STEPS-100:
-                    self.monitor.wrap[ax] -= 1                        
+            current_pos = self.read_position()
         except Exception as err:
-            log.error('move to target: '+str(err))
+            self.log.error("move_to_position0: cannot read position: "+str(err))
+            return None
+        current_wrap = wrap
+        target_wrap = { _: target_pos[_][1] for _ in self.axes }
+        target_pos = { _: target_pos[_][0] for _ in self.axes }
+        print('current',current_pos,current_wrap)
+        print('target ',target_pos,target_wrap)
+        for ax in axes_:
+            try:
+                print("set servo mode")
+                self.wheel_mode(ax, wheel=False)
+                print("servo mode done")
+                time.sleep(0.2)
+                print("set middle")
+                self.set_middle(ax)
+                print("set middle done")
+            except Exception as err:
+                self.log.error(f"move_to_position {ax} failed middle: "+str(err))
+                continue
+            delta_pos = target_pos[ax] - current_pos[ax]
+            delta_wrap = target_wrap[ax] - current_wrap[ax]
+            print('need delta',delta_pos,delta_wrap)
+            if 'MAX_WRAP' in self.motorconf[ax]:
+                max_wrap = self.motorconf[ax]['MAX_WRAP']
+                if abs(delta_wrap) > self.motorconf[ax]['MAX_WRAP']:
+                    self.log.error(f"axis {ax} should not move by {delta_wrap} turns, limiting to {max_wrap}")
+                if delta_wrap > 0:
+                    delta_wrap = max_wrap
+                elif delta_wrap < 0:
+                    delta_wrap = -max_wrap
+            if abs(delta_wrap) >= Motors.ST_MAX_WRAPS:
+                direction = 1
+                if delta_wrap < 0:
+                    direction = -1
+                time.sleep(0.2)
+                try:
+                    self.goto_position(ax,Motors.ST_MIDDLE+direction*Motors.ST_STEPS*(Motors.ST_MAX_WRAPS-1))
+                    time.sleep(0.2)
+                    self.set_middle(ax)
+                except Exception as err:
+                    self.log.error(f"move_to_position failed unwrapping {ax}"+str(err))
+                    continue
+                delta_wrap -= direction*(Motors.ST_MAX_WRAPS-1)
+            print('need delta',delta_pos,delta_wrap)
+            dpos = delta_pos + Motors.ST_STEPS*delta_wrap
+            try:
+                print("at position",self.read_position(ax))
+            except Exception as err:
+                pass
+            print("dpos",dpos)
+            try:
+                print("goto_position",Motors.ST_MIDDLE+dpos)
+                self.goto_position(ax,Motors.ST_MIDDLE+dpos)
+                time.sleep(0.2)
+                print("set wheel mode")
+                self.wheel_mode(ax, wheel=True)
+                print("done")
+                time.sleep(0.2)
+            except Exception as err:
+                self.log.error(f"move_to_position {ax} failed: "+str(err))
+        try:
+            newpos = self.read_position()
+            newwrap = target_wrap
+            for ax in axes_:
+                if newpos[ax] < 100 and target_pos[ax] > Motors.ST_STEPS-100:
+                    newwrap[ax] += 1
+                if newpos[ax] > Motors.ST_STEPS-100 and target_pos[ax] > Motors.ST_STEPS-100:
+                    newwrap[ax] -= 1                        
+            return target_wrap
+        except Exception as err:
+            self.log.error('move to target: '+str(err))
+        return None
 
 
 # TODO the following needs updating 
@@ -424,7 +442,7 @@ class ServoMonitor():
         self.state_valid = True
         for ax in self.motors.axes:
             if ax in self.pos:
-                if success and not (self.pos[ax] == pos[ax]):
+                if success and not (abs(self.pos[ax]-pos[ax])<5):
                     self.motors.log.error(f"{ax} axis mismatch of position: restart {self.pos[ax]} / current {pos[ax]}")
                     self.pos[ax] = pos[ax]
                     self.wrap[ax] = 0
@@ -467,7 +485,7 @@ class ServoMonitor():
                 else:
                     velinfo = 'ERROR'
                 velsetinfo = '  '.join([ ax + f' {vset:4d}' for ax,vset in self.motors.current_set_speed.items()])
-                torqueinfo = '  '.join([ ax + f' {trq:4d}' for ax,trq in self.motors.read_torque().items() ])
+                torqueinfo = '  '.join([ ax + f' {trq:4d}' for ax,trq in self.torque.items() ])
                 flags = ' '.join([f"{k} {int(v)}" for k,v in self.status.items()])
                 self.statusbar(
                         f"| CPU T={cpu_temp:.2f} SAMPLE T={sample_temp:.2f} D {self.t_init_str} +{int(self.next_t-self.t_init):5d}s {flags} {es}\n"
@@ -490,9 +508,6 @@ class ServoMonitor():
             newvel = { _:None for _ in self.motors.axes }
             newtrq = { _:None for _ in self.motors.axes }
             pass
-        #TODO FIXME how to read comm error?
-        #success &= motorDriver.success(comm, err)
-        #how to handle this
         return success, newpos, newvel, newtrq
     # update: query the motor positions, try to detect wrap-arounds
     def update_pos (self,detect_wrap=True):

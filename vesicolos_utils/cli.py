@@ -151,8 +151,7 @@ class CLI:
                 args = ''
             print("{k:8.8s} - {doc}{args}".format(k=chmap,doc=self.keymap[ch][0].__doc__,args=args))
         print("___")
-        for i in range(1,5):
-            poskey = 'savepos'+str(i)
+        for poskey in ['homepos']+['savepos'+str(i) for i in range(1,5)]:
             if poskey in self.stored_positions:
                 print (' ',poskey,self.stored_positions[poskey])
         print("___")
@@ -197,14 +196,18 @@ class CLI:
             poskey = 'homepos'
         else:
             poskey = 'savepos'+str(num)
-        if not (poskey in POSITIONS):
+        if not (poskey in self.stored_positions):
             print ('no position',poskey,'saved')
         else:
             self.motor_controller.stop_all()
             time.sleep(0.2)
             self.monitor.stop()
-            #TODO FIXME
-            self.motor_controller.move_to_stored_position(self.stored_positions[poskey])
+            self.log.info(f"moving to stored position {poskey}")
+            newwrap = self.motor_controller.move_to_position(self.stored_positions[poskey],self.monitor.wrap)
+            if newwrap is not None:
+                self.monitor.wrap = newwrap
+            self.log.info("move to stored position: done")
+            # FIXME make log function to record positions
             self.monitor.start()
             self.last_savepos = poskey
     def goto_position(self):
@@ -223,7 +226,7 @@ class CLI:
             return
         self.motor_controller.wheel_mode(ax,False)
         time.sleep(0.2)
-        self.motor_controller.goto_position(ax,pos,wait_moving=False)
+        self.motor_controller.goto_position(ax,pos,wait_moving=True)
         time.sleep(0.2)
         self.motor_controller.wheel_mode(ax,True)
         self.monitor.start()

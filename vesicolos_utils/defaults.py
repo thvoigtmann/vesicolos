@@ -30,10 +30,10 @@ MOTOR_DZ_WAIT = 0.1            # in seconds, wait time at each step
 # if we loose internet connection we don't want the motors to move
 # indefinitely, so there is a timeout in interactive mode
 MOTOR_TIMEOUT = 30              # seconds until motor stop in unattended UI mode
-# TODO also add a configurable torque limit, probably per axis (and direction?)
 SERVOS = {
   '_default_': { 'SPEED_INC': 200, 'MAX_TORQUE': 200 },
-  'Z': { 'SPEED_INC': 40, 'MAX_WRAP': 1 }
+  'Z': { 'SPEED_INC': 40 },
+  #'Z': { 'SPEED_INC': 40, 'MAX_WRAP': 1 }
 }
 # mapping of keys to control the Cartesian axes and their directions
 # this is currently configured to work in inverted mode, so that arrow
