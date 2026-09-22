@@ -28,7 +28,7 @@ class CLI:
         # provide factory methods to make loggers with common formatting
         # sanity check
         for feature, featname, dependency in [
-            (self.motors,"motors",[CLI.movement,CLI.stop_all,CLI.store_position,CLI.recall_position]),
+            (self.motors,"motors",[CLI.movement,CLI.stop_all,CLI.store_position,CLI.recall_position,CLI.store_home_position,CLI.recall_home_position]),
             (self.led,"LED",[CLI.toggle_led]),
             (self.heater,"heater",[CLI.toggle_heater])
             ]:
@@ -139,6 +139,7 @@ class CLI:
         print ("NOT IMPLEMENTED / CONFIGURED:",errmsg)
     def user_help(self):
         """help"""
+        helpmap = {}
         for ch in self.keymap:
             if ch<32 or ch>255:
                 chmap = next(k.name for k in reversed(Keys) if k==ch)
@@ -146,10 +147,18 @@ class CLI:
                 chmap = chr(ch)
             func, *args = (*self.keymap[ch],)
             if args:
-                args = ' '+' '.join([str(_) for _ in args])
+                args = ' '.join([str(_) for _ in args])
             else:
                 args = ''
-            print("{k:8.8s} - {doc}{args}".format(k=chmap,doc=self.keymap[ch][0].__doc__,args=args))
+            if not func in helpmap:
+                helpmap[func] = (func.__doc__, { chmap: args })
+            else:
+                helpmap[func][1][chmap] = args
+            #print("{k:8.8s} - {doc}{args}".format(k=chmap,doc=self.keymap[ch][0].__doc__,args=args))
+        for f in helpmap:
+            keys = '/'.join(helpmap[f][1].keys())
+            args = '/'.join(helpmap[f][1].values())
+            print("{k:16.16s} - {doc}{args}".format(k=keys,doc=helpmap[f][0],args=args))
         print("___")
         for poskey in ['homepos']+['savepos'+str(i) for i in range(1,5)]:
             if poskey in self.stored_positions:
@@ -190,6 +199,9 @@ class CLI:
                 self.stored_positions[poskey][ax] = (self.monitor.pos[ax],self.monitor.wrap[ax])
             print ('saved',poskey,self.monitor.pos,self.monitor.wrap)
             self.last_savepos = poskey
+    def store_home_position (self):
+        """store home position"""
+        self.store_position(0)
     def recall_position(self, num):
         """recall stored position"""
         if num == 0:
@@ -210,6 +222,9 @@ class CLI:
             # FIXME make log function to record positions
             self.monitor.start()
             self.last_savepos = poskey
+    def recall_home_position (self):
+        """recall home position"""
+        self.recall_position(0)
     def goto_position(self):
         """goto a specific position (servo mode)"""
         if not self.current_axis in self.motor_controller.axes:
@@ -358,8 +373,10 @@ keymap = {
     ord('3'): (CLI.recall_position,3),
     ord('4'): (CLI.recall_position,4),
     ord('5'): (CLI.recall_position,5),
-    Keys.INSERT: (CLI.store_position,0),
-    Keys.HOME: (CLI.recall_position,0),
+    Keys.INSERT: (CLI.store_home_position,),
+    Keys.HOME: (CLI.recall_home_position,),
+    #Keys.INSERT: (CLI.store_position,0),
+    #Keys.HOME: (CLI.recall_position,0),
     ord('x'): (CLI.set_axis,'X'),
     ord('y'): (CLI.set_axis,'Y'),
     ord('z'): (CLI.set_axis,'Z'),
