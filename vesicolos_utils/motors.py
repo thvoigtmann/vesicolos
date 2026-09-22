@@ -423,7 +423,7 @@ class MotorController:
             try:
                 self.wheel_mode(axis,wheel=False)
                 time.sleep(0.2)
-                motor_controller.set_middle(axis)
+                self.set_middle(axis)
                 time.sleep(0.2)
                 # after set middle, motor is in servo mode, pos 2048
                 # set zpos to highest position first
@@ -435,13 +435,14 @@ class MotorController:
                 # rely on the fact that it will be within 4096
                 # and thus the following code should work if we
                 # replace 2048 by the current position??
-                zpos = 2048 + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
-                zcnt = 0
-                zdirection = -1
+                zpos = 2048 # + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
+                zcnt = int(MOTOR_DZ_STEPS/2)
+                zdirection = +1
                 self.goto_position('Z',zpos)
                 do_zstack = True
             except:
                 do_zstack = False
+        t0 = time.time()
         while True:
             if do_zstack:
                 if zcnt >= MOTOR_DZ_STEPS:
@@ -454,7 +455,7 @@ class MotorController:
                 except:
                     pass
             task()
-            if time.time() > tmax:
+            if time.time() > t0 + tmax:
                 break
         if do_zstack:
             try:
@@ -561,12 +562,11 @@ class ServoMonitor():
             newpos = self.motors.read_position()
             newvel = self.motors.get_speed()
             newtrq = self.motors.read_torque()
-        except PortNotOpenError as e:
+        except (SerialException,PortNotOpenError) as e:
             success = False
             newpos = { _:None for _ in self.motors.axes }
             newvel = { _:None for _ in self.motors.axes }
             newtrq = { _:None for _ in self.motors.axes }
-            pass
         return success, newpos, newvel, newtrq
     # update: query the motor positions, try to detect wrap-arounds
     def update_pos (self,detect_wrap=True):

@@ -349,7 +349,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                 tmax = STATE_VARS['user.temperatures'].get(pos,{}).get('tmax',TMAX_DEFAULT)
                 motor_controller.zstack (stack_axis,
                                          lambda: time.sleep(MOTOR_DZ_WAIT),
-                                         tmax=tmax + time.time())
+                                         tmax=tmax)
                 if not camera is None:
                     camera.stop()
     

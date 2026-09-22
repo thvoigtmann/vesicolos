@@ -238,12 +238,13 @@ class CLI:
             pos = int(posstr)
         except ValueError:
             print ("illegal position")
-            return
-        self.motor_controller.wheel_mode(ax,False)
-        time.sleep(0.2)
-        self.motor_controller.goto_position(ax,pos,wait_moving=True)
-        time.sleep(0.2)
-        self.motor_controller.wheel_mode(ax,True)
+            pos = None
+        if pos is not None:
+            self.motor_controller.wheel_mode(ax,False)
+            time.sleep(0.2)
+            self.motor_controller.goto_position(ax,pos,wait_moving=True)
+            time.sleep(0.2)
+            self.motor_controller.wheel_mode(ax,True)
         self.monitor.start()
     def set_middle (self):
         """reset motor position to 2048"""
@@ -266,10 +267,11 @@ class CLI:
             vel = int(velstr)
         except ValueError:
             print ("illegal input")
-            return
-        res, rvel = self.motor_controller.set_speed(ax, vel, return_read=True)
-        print("rvel",rvel)
-        print("res",res)
+            vel = None
+        if vel is not None:
+            res, rvel = self.motor_controller.set_speed(ax, vel, return_read=True)
+            print("rvel",rvel)
+            print("res",res)
         self.monitor.start()
     def set_axis (self, ax):
         """set current working axis"""
@@ -299,10 +301,17 @@ class CLI:
             return
         self.motor_controller.stop_all()
         self.monitor.stop()
-        print("performing stack motion on axis",self.current_axis)
-        self.motor_controller.zstack(self.current_axis, lambda: time.sleep(0.1),
-                                     tmax=20)
-        print("done")
+        tmax = input('duration? ')
+        try:
+            tmax = int(tmax)
+        except ValueError:
+            print ("illegal input")
+            tmax=0
+        if tmax>0:
+            print("performing stack motion on axis",self.current_axis)
+            self.motor_controller.zstack(self.current_axis, lambda: time.sleep(0.1),
+                                         tmax=tmax)
+            print("done")
         self.monitor.start()
     def toggle_led(self):
         """toggle LED"""
