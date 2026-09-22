@@ -89,26 +89,27 @@ Clone the repository, into `~/Desktop`:
 git clone git@github.com:thvoigtmann/vesicolos.git
 git submodule update --init
 ```
-The script `~/Desktop/vesicolos/start.sh` needs to be found by the
-autostart mechanism.
+
+Install the `lg` library needed for the `lgpio` package:
+see https://abyz.me.uk/lg/download.html and follow instructions
+there.
 
 Inside the `vesicolos` folder, a python virtual environment needs to be created
 as follows:
 ```bash
-python3 -m venv venv
+python3 -m venv --system-site-packages venv
 . venv/bin/activate
 pip install -r requirements.txt
 ```
 This should install the required python libraries found in `requirements.txt`.
-(You can experiment with giving `--system-site-packages` when creating
-the virtual environment.)
-For the `lgpio` library on the Raspberry 5, we found it necessary to first
-install `lg` from https://abyz.me.uk/lg/download.html (follow instructions
-there). The important packages that do not come with the raspberry install
-should be
+There `libcamera` module required by `picamera2` SHOULD be installable
+in a virtual environment, but in reality it's not, we need to take the
+one from the system libraries. If this creates problems with GPIO
+access, you need to separately
 ```bash
-adafruit-circuitpython-max31865 gpiozero rpi-lgpio pyserial
+pip install --ignore-installed gpiozero
 ```
+in the virtual environment.
 
 The file in `autostart` needs to be copied into `~/.config/autostart/`.
 This should make the vesicolos python program automatically start once

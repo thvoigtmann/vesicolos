@@ -2,8 +2,8 @@
 adafruit-circuitpython-max31865
 gpiozero
 pyserial
-rpi-lgpio
 gpiod
+rpi-lgpio
 picamera2
 #
 psutil

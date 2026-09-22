@@ -1,4 +1,5 @@
 import logging, time, os, sys
+import threading
 from vesicolos_utils import getkey, Keys, make_camera_key
 from vesicolos_utils.camera import CameraController, CameraStream
 
@@ -18,6 +19,7 @@ class CLI:
         self.led = led
         self.heater = heater
         self.camera = None
+        self.videostream = None
         self.recordings = []
         self.keymap = keymap
         self.camfile = camfile

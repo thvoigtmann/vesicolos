@@ -1,5 +1,5 @@
 import picamera2
-from libcamera import controls
+#from libcamera import controls
 
 class CameraController ():
     def __init__ (self, filename, pts=None, keys={}):
@@ -31,11 +31,13 @@ class CameraController ():
             self.picam.stop_recording()
             print("STOP cam recording")
             self.picam.close()
+            self.picam = None
 
 class CameraStream ():
     def __init__ (self, target_ip="0.0.0.0", udp_port=3333):
         self.picam = picamera2.Picamera2()
-        cdn_off = controls.draft.NoiseReductionModeEnum.Off
+        #cdn_off = controls.draft.NoiseReductionModeEnum.Off
+        cdn_off = 0
         video_config = self.picam.create_video_configuration(
                 main={'size':(640,480)},
                 controls={"FrameDurationLimits": (33333,33333),
@@ -43,8 +45,13 @@ class CameraStream ():
         self.picam.configure(video_config)
         self.encoder = picamera2.encoders.H264Encoder(repeat=True,iperiod=15)
         self.output = picamera2.outputs.FfmpegOutput(f"-f h264 udp://{target_ip}:{udp_port}", audio=False)
-        self.encoder.output = [output]
+        self.encoder.output = [self.output]
+    def __del__ (self):
+        self.stop()
     def start (self):
         self.picam.start_recording(self.encoder, self.output)
     def stop (self):
-        self.picam.stop_recording()
+        if self.picam is not None:
+            self.picam.stop_recording()
+            self.picam.close()
+            self.picam = None
