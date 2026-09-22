@@ -8,6 +8,8 @@ import threading
 from serial import PortNotOpenError
 from . import Word16
 
+from .defaults import MOTOR_DZ_STEPSIZE, MOTOR_DZ_STEPS
+
 #import ansi
 
 class myServo(Servo):
@@ -411,6 +413,56 @@ class MotorController:
         except Exception as err:
             self.log.error('move to target: '+str(err))
         return None
+    def zstack (self, axis, task, tmax=0):
+        """Perform task given by callback in a while loop, lasting
+        at least tmax seconds, and, if possible, step motor corresponding
+        to axis around middle position while doing the task.
+        If the motor can't be controlled, the task will still be run."""
+        do_zstack = False
+        if axis in self.axes:
+            try:
+                self.wheel_mode(axis,wheel=False)
+                time.sleep(0.2)
+                motor_controller.set_middle(axis)
+                time.sleep(0.2)
+                # after set middle, motor is in servo mode, pos 2048
+                # set zpos to highest position first
+                # NOTE this relies on the fact that we
+                # can fiddle with the position in servo mode but this
+                # doesn't destroy the wheel mode positions that we
+                # use for recalling stored positions
+                # TODO can we not just read the current position and
+                # rely on the fact that it will be within 4096
+                # and thus the following code should work if we
+                # replace 2048 by the current position??
+                zpos = 2048 + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
+                zcnt = 0
+                zdirection = -1
+                self.goto_position('Z',zpos)
+                do_zstack = True
+            except:
+                do_zstack = False
+        while True:
+            if do_zstack:
+                if zcnt >= MOTOR_DZ_STEPS:
+                    zdirection = -zdirection
+                    zcnt = 0
+                zcnt += 1
+                zpos += zdirection*MOTOR_DZ_STEPSIZE
+                try:
+                    self.goto_position(axis,zpos)
+                except:
+                    pass
+            task()
+            if time.time() > tmax:
+                break
+        if do_zstack:
+            try:
+                self.wheel_mode(axis,wheel=True)
+                time.sleep(0.2)
+            except:
+                pass
+
 
 
 # TODO the following needs updating 
@@ -485,7 +537,10 @@ class ServoMonitor():
                 else:
                     velinfo = 'ERROR'
                 velsetinfo = '  '.join([ ax + f' {vset:4d}' for ax,vset in self.motors.current_set_speed.items()])
-                torqueinfo = '  '.join([ ax + f' {trq:4d}' for ax,trq in self.torque.items() ])
+                if self.torque is not None:
+                    torqueinfo = '  '.join([ ax + f' {trq or -1:4d}' for ax,trq in self.torque.items() ])
+                else:
+                    torqueinfo = 'ERROR'
                 flags = ' '.join([f"{k} {int(v)}" for k,v in self.status.items()])
                 self.statusbar(
                         f"| CPU T={cpu_temp:.2f} SAMPLE T={sample_temp:.2f} D {self.t_init_str} +{int(self.next_t-self.t_init):5d}s {flags} {es}\n"
