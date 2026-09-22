@@ -463,9 +463,11 @@ class ServoMonitor():
                 if self.heater and self.heater.is_active:
                     es = 'H'
                 else:
-                    es = ''
+                    es = ' '
                 if self.led and self.led.is_active:
-                    es += ' L'
+                    es += 'L'
+                else:
+                    es += ' '
                 if not success:
                     es += ' ERR'
                 try:
