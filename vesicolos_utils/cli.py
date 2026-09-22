@@ -292,6 +292,18 @@ class CLI:
         delta = { ax: wheelpos[ax]-servopos[ax] for ax in wheelpos }
         print ("delta",delta)
         self.monitor.start()
+    def do_stack(self):
+        """perform stack"""
+        if not self.current_axis in self.motor_controller.axes:
+            print("no workable axis set")
+            return
+        self.motor_controller.stop_all()
+        self.monitor.stop()
+        print("performing stack motion on axis",self.current_axis)
+        self.motor_controller.zstack(self.current_axis, lambda: time.sleep(0.1),
+                                     tmax=20)
+        print("done")
+        self.monitor.start()
     def toggle_led(self):
         """toggle LED"""
         self.led.toggle()
@@ -387,6 +399,7 @@ keymap = {
     ord('l'): (CLI.toggle_led,),
     ord('h'): (CLI.toggle_heater,),
     ord('t'): (CLI.enter_temperature_ramp,),
+    ord('!'): (CLI.do_stack,),
     ord('*'): (CLI.liftoff,),
     ord('c'): (CLI.toggle_camera,),
     ord('?'): (CLI.user_help,)
