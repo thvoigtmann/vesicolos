@@ -413,8 +413,8 @@ class MotorController:
         return None
 
 
-# TODO the following needs updating 
-# this is a general monitor also for temperature
+# the following is slightly misleadingly named:
+# this is a general monitor also for temperature as well as
 # monitor for servo positions
 # we also output signal status here for convenience
 # also output temperature readings here for convenience -> this is just
@@ -423,7 +423,9 @@ class ServoMonitor():
     def __init__ (self, motors, temp_sensor, led, heater, log, increment, silent=False, state={}, global_status={}):
         self.t_init = time.time()
         self.next_t = self.t_init
-        self.t_init_str = time.ctime(self.t_init)
+        #self.t_init_str = time.ctime(self.t_init)
+        self.t_init_str = time.strftime("%Y-%m-%d %H:%M:%S",
+                                        time.localtime(self.t_init))
         self.silent = silent
         self.done = False
         self.motors = motors
@@ -459,11 +461,11 @@ class ServoMonitor():
             success = self.update_pos()
             if not self.silent:
                 if self.heater and self.heater.is_active:
-                    es = 'HEAT'
+                    es = 'H'
                 else:
                     es = ''
                 if self.led and self.led.is_active:
-                    es += ' LED'
+                    es += ' L'
                 if not success:
                     es += ' ERR'
                 try:
