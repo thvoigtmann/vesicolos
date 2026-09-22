@@ -350,13 +350,9 @@ class MotorController:
         print('target ',target_pos,target_wrap)
         for ax in axes_:
             try:
-                print("set servo mode")
                 self.wheel_mode(ax, wheel=False)
-                print("servo mode done")
                 time.sleep(0.2)
-                print("set middle")
                 self.set_middle(ax)
-                print("set middle done")
             except Exception as err:
                 self.log.error(f"move_to_position {ax} failed middle: "+str(err))
                 continue
@@ -384,20 +380,11 @@ class MotorController:
                     self.log.error(f"move_to_position failed unwrapping {ax}"+str(err))
                     continue
                 delta_wrap -= direction*(Motors.ST_MAX_WRAPS-1)
-            print('need delta',delta_pos,delta_wrap)
             dpos = delta_pos + Motors.ST_STEPS*delta_wrap
             try:
-                print("at position",self.read_position(ax))
-            except Exception as err:
-                pass
-            print("dpos",dpos)
-            try:
-                print("goto_position",Motors.ST_MIDDLE+dpos)
                 self.goto_position(ax,Motors.ST_MIDDLE+dpos)
                 time.sleep(0.2)
-                print("set wheel mode")
                 self.wheel_mode(ax, wheel=True)
-                print("done")
                 time.sleep(0.2)
             except Exception as err:
                 self.log.error(f"move_to_position {ax} failed: "+str(err))
@@ -459,6 +446,8 @@ class MotorController:
                 break
         if do_zstack:
             try:
+                # let's move back to where we were, else the wrap could mess
+                self.goto_position(axis,2048)
                 self.wheel_mode(axis,wheel=True)
                 time.sleep(0.2)
             except:
