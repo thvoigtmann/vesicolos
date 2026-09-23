@@ -148,12 +148,12 @@ class MotorController:
                 self._servos[servo_id] = servo
                 if axis:
                     self._servos[axis] = servo
-                    self.current_set_speed[axis] = servo.ReadPresentSpeed()
             found_all_axes = True
             for ax in sorted(list(set(axes_map.values()))):
                 if ax in self._servos:
                     self.axes.append(ax)
                     self.axes_map[self._servos[ax].id] = ax
+                    self.current_set_speed[ax] = self._servos[ax].ReadPresentSpeed()
                 else:
                     found_all_axes = False
             if not found_all_axes:
@@ -323,8 +323,7 @@ class MotorController:
             with self.serial_lock:
                 self._servos[axis].setMiddle()
     def move_to_position (self, target_pos, wrap):
-        # FIXME TODO DEBUG
-        axes_ = ['Z'] # axes
+        axes_ = self.axes
         """Move all motors to the positions given in `target_pos`, taking into
         account the wrap-around counters.
         `target_pos` needs to be a dict with keys corresponding to the
@@ -527,7 +526,7 @@ class ServoMonitor():
                 else:
                     posinfo = 'ERROR'
                 if self.vel is not None:
-                    velinfo = '  '.join([ ax + f' {vel}' for ax,vel in self.vel.items() ])
+                    velinfo = '  '.join([ ax + f' {vel:4d}' for ax,vel in self.vel.items() ])
                 else:
                     velinfo = 'ERROR'
                 velsetinfo = '  '.join([ ax + f' {vset:4d}' for ax,vset in self.motors.current_set_speed.items()])
