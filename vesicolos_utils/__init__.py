@@ -71,6 +71,8 @@ def load_restart (state, restartfile, log):
                  if k in data:
                      state[k] = data[k]
         log.info("re-loaded state from restart file")
+        if not "nominal_exit" in data:
+            log.warn("non-nominal restart file? proceed with caution")
     except FileNotFoundError:
         pass
 
@@ -87,6 +89,7 @@ def save_restart (prog_end, restartfile, state):
         time.sleep(2)
         os.sync()
     # at program end, write again for sure
+    print("restart: nominal exit")
     with open(restartfile, 'w') as f:
         json.dump(state, f, sort_keys=True, indent=4)
     os.sync()
