@@ -328,6 +328,8 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         recordings = []
         while status['mug'] or manual_lift_off:
             for pos in positions:
+                if pos == 'homepos':
+                    continue
                 ckey = make_camera_key(recordings, pos, pre='mug_')
                 recordings.append(ckey)
                 try:
@@ -340,7 +342,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                     camera = None
                     log.error('camera error '+str(e))
                 if not pos == 'default':
-                    motor_controller.move_to_stored_position (STATE_VARS['user.positions'][pos], monitor.wrap)
+                    motor_controller.move_to_position (STATE_VARS['user.positions'][pos], monitor.wrap)
                     stack_axis = 'Z'
                 else:
                     stack_axis = ''
@@ -352,6 +354,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                                          tmax=tmax)
                 if not camera is None:
                     camera.stop()
+                os.sync()
     
     
     if not stop:

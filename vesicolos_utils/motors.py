@@ -502,15 +502,17 @@ class ServoMonitor():
             success = self.update_pos()
             if not self.silent:
                 if self.heater and self.heater.is_active:
-                    es = 'H'
+                    istr = 'H'
                 else:
-                    es = ' '
+                    istr = ' '
                 if self.led and self.led.is_active:
-                    es += 'L'
+                    istr += 'L'
                 else:
-                    es += ' '
+                    istr += ' '
                 if not success:
-                    es += ' ERR'
+                    estr = 'ERR'
+                else:
+                    estr = '   '
                 try:
                     with open('/sys/class/thermal/thermal_zone0/temp','r') as f:
                         cpu_temp = int(f.read())
@@ -536,9 +538,9 @@ class ServoMonitor():
                     torqueinfo = 'ERROR'
                 flags = ' '.join([f"{k} {int(v)}" for k,v in self.status.items()])
                 self.statusbar(
-                        f"| CPU T={cpu_temp:.2f} SAMPLE T={sample_temp:.2f} D {self.t_init_str} +{int(self.next_t-self.t_init):5d}s {flags} {es}\n"
+                        f"| CPU T={cpu_temp:.2f} SAMPLE T={sample_temp:.2f} D {self.t_init_str} +{int(self.next_t-self.t_init):5d}s {flags} {istr}\n"
                         f"| POS {posinfo} TRQ {torqueinfo}\n"
-                        f"| VEL {velinfo} SET {velsetinfo}"
+                        f"| VEL {velinfo} SET {velsetinfo} {estr}"
                 )
                 self.log.info(f"{sample_temp} {posinfo} {velinfo} {flags}")
             while self.next_t < time.time():
