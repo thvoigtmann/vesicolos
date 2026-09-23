@@ -404,7 +404,7 @@ class MotorController:
                 wrap[ax] = newwrap
         except Exception as err:
             self.log.error('move to target: '+str(err))
-        self.torque_control(enable=False)
+        self.torque_control(enable=True)
     def zstack (self, axis, task, tmax=0):
         """Perform task given by callback in a while loop, lasting
         at least tmax seconds, and, if possible, step motor corresponding
