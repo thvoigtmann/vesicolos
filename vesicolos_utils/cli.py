@@ -164,7 +164,7 @@ class CLI:
             #print("{k:8.8s} - {doc}{args}".format(k=chmap,doc=self.keymap[ch][0].__doc__,args=args))
         for f in helpmap:
             keys = '/'.join(helpmap[f][1].keys())
-            args = '/'.join(helpmap[f][1].values())
+            args = ' '+'/'.join(helpmap[f][1].values())
             print("{k:16.16s} - {doc}{args}".format(k=keys,doc=helpmap[f][0],args=args))
         print("___")
         for poskey in ['homepos']+['savepos'+str(i) for i in range(1,5)]:
@@ -193,16 +193,12 @@ class CLI:
         time.sleep(0.2)
         if num == 0:
             poskey = 'homepos'
-            reset_wrap = True
         else:
             poskey = 'savepos'+str(num)
-            reset_wrap = False
         success = self.monitor.update_pos()
         if success:
             self.stored_positions[poskey] = {}
             for ax in self.motor_controller.axes:
-                if reset_wrap:
-                    self.monitor.wrap[ax] = 0
                 self.stored_positions[poskey][ax] = (self.monitor.pos[ax],self.monitor.wrap[ax])
             print ('saved',poskey,self.monitor.pos,self.monitor.wrap)
             self.last_savepos = poskey
@@ -222,9 +218,7 @@ class CLI:
             time.sleep(0.2)
             self.monitor.stop()
             self.log.info(f"moving to stored position {poskey}")
-            newwrap = self.motor_controller.move_to_position(self.stored_positions[poskey],self.monitor.wrap)
-            if newwrap is not None:
-                self.monitor.wrap = newwrap
+            self.motor_controller.move_to_position(self.stored_positions[poskey],self.monitor.wrap)
             self.log.info("move to stored position: done")
             # FIXME make log function to record positions
             self.monitor.start()
@@ -426,7 +420,7 @@ keymap = {
     ord('z'): (CLI.set_axis,'Z'),
     ord('q'): (CLI.query_position,),
     ord('g'): (CLI.goto_position,),
-    ord('m'): (CLI.set_middle,),
+    #ord('m'): (CLI.set_middle,),
     #ord('v'): (CLI.set_velocity,),
     ord('v'): (CLI.toggle_video_stream,),
     ord('l'): (CLI.toggle_led,),

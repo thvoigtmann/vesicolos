@@ -305,6 +305,7 @@ class MotorController:
                                 self.motorconf[ax]['MAX_TORQUE'])
                     else:
                         self._servos[ax].sram.torque_disable()
+                        self._servos[ax].sram.write_torque_limit(1000)
         elif axis in self.axes:
             with self.serial_lock:
                 if enable:
@@ -313,6 +314,7 @@ class MotorController:
                             self.motorconf[axis]['MAX_TORQUE'])
                 else:
                     self._servos[axis].sram.torque_disable()
+                    self._servos[axis].sram.write_torque_limit(1000)
     def set_middle (self, axis=''):
         """Reset motor position specified by `axis` to middle."""
         if not axis:
@@ -328,7 +330,8 @@ class MotorController:
         """Move all motors to the positions given in `target_pos`, taking into
         account the wrap-around counters.
         `target_pos` needs to be a dict with keys corresponding to the
-        axes, each storing a tuple of `(pos,wrap)` targets."""
+        axes, each storing a tuple of `(pos,wrap)` targets.
+        Modifies the `wrap` counter in place."""
         # current and target positions are in wheel mode
         # we can also get the current position in servo mode
         # to go to a defined position:
@@ -348,6 +351,7 @@ class MotorController:
         target_pos = { _: target_pos[_][0] for _ in self.axes }
         print('current',current_pos,current_wrap)
         print('target ',target_pos,target_wrap)
+        self.torque_control(enable=False)
         for ax in axes_:
             try:
                 self.wheel_mode(ax, wheel=False)
@@ -390,16 +394,17 @@ class MotorController:
                 self.log.error(f"move_to_position {ax} failed: "+str(err))
         try:
             newpos = self.read_position()
-            newwrap = target_wrap
+            # update the global wrap counter
             for ax in axes_:
+                newwrap = target_wrap[ax]
                 if newpos[ax] < 100 and target_pos[ax] > Motors.ST_STEPS-100:
-                    newwrap[ax] += 1
+                    newwrap += 1
                 if newpos[ax] > Motors.ST_STEPS-100 and target_pos[ax] > Motors.ST_STEPS-100:
-                    newwrap[ax] -= 1                        
-            return target_wrap
+                    newwrap -= 1
+                wrap[ax] = newwrap
         except Exception as err:
             self.log.error('move to target: '+str(err))
-        return None
+        self.torque_control(enable=False)
     def zstack (self, axis, task, tmax=0):
         """Perform task given by callback in a while loop, lasting
         at least tmax seconds, and, if possible, step motor corresponding
@@ -484,6 +489,7 @@ class ServoMonitor():
         self.increment = increment
         self.pos = state.get('motor.pos',{})
         self.wrap = state.get('motor.wrap',{})
+        #self.wrap = state['motor.wrap']
         success, pos, self.vel, self.torque = self.read_pos_vel()
         # for pos, check if we have stored state variables
         # if we do, the positions must match, else the hardware is not
