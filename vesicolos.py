@@ -271,8 +271,8 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                 log.info("waiting for microgravity")
                 time.sleep(0.5)
                 if time.time() - t0 >= SOE_TIMEOUT:
-                    log.write("SOE by timeout")
-                    tlog.write("SOE ON timeout")
+                    log.info("SOE by timeout")
+                    tlog.info("SOE by timeout")
                     break
             if camera is not None:
                 camera.stop()
