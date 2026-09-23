@@ -6,6 +6,8 @@ import time
 import threading
 
 from serial import PortNotOpenError
+from serial.serialutil import SerialException
+
 from . import Word16
 
 from .defaults import MOTOR_DZ_STEPSIZE, MOTOR_DZ_STEPS

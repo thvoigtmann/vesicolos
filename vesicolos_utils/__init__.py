@@ -16,9 +16,11 @@ def kill_proc_by_name(name, log):
             proc.kill()
             time.sleep(0.2) # give it time to die
         except psutil.NoSuchProcess:
-            log.error(f"No such process: {proc.pid}")
+            if log is not None:
+                log.error(f"No such process: {proc.pid}")
         except psutil.AccessDenied:
-            log.error(f"Access denied to {proc.pid}")
+            if log is not None:
+                log.error(f"Access denied to {proc.pid}")
 
 # setup logging
 def logSetup (path_template, logfile, templogfile):
@@ -148,7 +150,6 @@ def detect_gpio_chip ():
         device = f'/dev/gpiochip{i}'
         try:
             chip = gpiod.Chip(device)
-            print(chip.get_info())
             if chip.get_info().label == 'pinctrl-rp1':
                 found = i
         except:

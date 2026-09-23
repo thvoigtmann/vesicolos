@@ -258,7 +258,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
             # we do not interrupt them
             if camera is None:
                 try:
-                    camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff_auto'})
+                    camera = CameraController(camfile,pts=ptsfile,keys={'pos':'liftoff_auto'},log=log)
                     threading.Thread(target=camera.record).start()
                     led.on()
                 except ModuleNotFoundError as e:
@@ -335,7 +335,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                 ckey = make_camera_key(recordings, pos, pre='mug_')
                 recordings.append(ckey)
                 try:
-                    camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey})
+                    camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey},log=log)
                     threading.Thread(target=camera.record).start()
                 except ModuleNotFoundError as e:
                     camera = None

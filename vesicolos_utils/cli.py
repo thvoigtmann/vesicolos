@@ -27,7 +27,8 @@ class CLI:
         if movement_map:
             for k,m in movement_map.items():
                 self.keymap[k] = (CLI.movement, m['axis'], m['dir'])
-        self.log = logging.getLogger("VESICOLOS UI")
+        #self.log = logging.getLogger("VESICOLOS UI")
+        self.log = logging.getLogger("VESICOLOS")
         # TODO FIXME
         # provide factory methods to make loggers with common formatting
         # sanity check
@@ -362,15 +363,17 @@ class CLI:
     def toggle_camera(self):
         """toggle user camera recording"""
         if self.camera is not None:
+            print("CAMERA OFF")
             self.camera.stop()
             self.camera = None
         else:
             if self.videostream is not None:
                 self.toggle_video_stream()
+            print("CAMERA ON")
             ckey = make_camera_key (self.recordings, self.last_savepos or 'launch', pre='user_')
             self.recordings.append(ckey)
             try:
-                self.camera = CameraController(self.camfile,pts=self.ptsfile,keys={'pos':ckey})
+                self.camera = CameraController(self.camfile,pts=self.ptsfile,keys={'pos':ckey},log=self.log)
                 threading.Thread(target=self.camera.record).start()
             except ModuleNotFoundError as e:
                 self.camera = None
@@ -378,16 +381,21 @@ class CLI:
             except RuntimeError as e:
                 self.camera = None
                 self.log.error("could not start camera: "+str(e))
+            except Exception as e:
+                self.camera = None
+                self.log.error("unknown camera error "+str(e))
     def toggle_video_stream(self):
         """toggle network video stream"""
         if self.videostream is not None:
+            PRINT("VSTREAM OFF")
             self.videostream.stop()
             self.videostream = None
         else:
             if self.camera is not None:
                 self.toggle_camera()
             try:
-                self.videostream = CameraStream(target_ip=VIDEO_IP)
+                PRINT("VSTREAM ON")
+                self.videostream = CameraStream(target_ip=VIDEO_IP,log=self.log)
                 self.videostream.start()
             except Exception as e:
                 self.videostream = None
