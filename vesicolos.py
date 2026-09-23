@@ -13,7 +13,7 @@ sys.path.append('python-st3215/src')
 sys.path.append('.')
 from python_st3215 import ST3215
 from vesicolos_utils import getkey,kill_proc_by_name,DummyGPIO,detect_gpio_chip
-from vesicolos_utils import logSetup, load_restart, save_restart, load_flight_config, detect_rpi_model, make_camera_key
+from vesicolos_utils import logSetup, load_restart, save_restart, load_flight_config, detect_rpi_model, make_camera_key, MicrogravityTimeout
 import vesicolos_utils.motors as vm
 import vesicolos_utils.temperature as vt
 from vesicolos_utils.camera import CameraController
@@ -303,8 +303,6 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
 
     # the SIGALRM handler is responsible for raising the exception that will
     # interrupt the microgravity_experiment() function
-    class MicrogravityTimeout (Exception):
-        pass
     def mug_timeout_handler (signum, frame):
         global status
         if status['mug']:
@@ -319,7 +317,11 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
     # CORE MICROGRAVITY EXPERIMENT PROCEDURE
 
     def microgravity_experiment (Tcontrol):
-        positions = sorted(STATE_VARS['user.positions'].keys() or ['default'])
+        # as positions, use all but homepos (which is only for homing)
+        # if that leaves nothing, make a default at wherever we are
+        positions = [pos for pos in STATE_VARS['user.positions']
+                     if not pos=='homepos']
+        positions = sorted(positions or ['default'])
         log.info("mug sequence: positions "+" / ".join(positions))
         if led is not None:
             led.on()
@@ -345,7 +347,7 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                     motor_controller.move_to_position (STATE_VARS['user.positions'][pos], monitor.wrap)
                     stack_axis = 'Z'
                 else:
-                    stack_axis = ''
+                    stack_axis = 'Z'
                 Tcontrol.set_profile (pos)
                 # take some time, do z-stacks
                 tmax = STATE_VARS['user.temperatures'].get(pos,{}).get('tmax',TMAX_DEFAULT)

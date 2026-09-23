@@ -303,3 +303,6 @@ class Word16:
         return self
     def __int__ (self):
         return int(self.value)
+
+class MicrogravityTimeout (Exception):
+    pass

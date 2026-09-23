@@ -9,6 +9,7 @@ from serial import PortNotOpenError
 from . import Word16
 
 from .defaults import MOTOR_DZ_STEPSIZE, MOTOR_DZ_STEPS
+from . import MicrogravityTimeout
 
 #import ansi
 
@@ -426,6 +427,8 @@ class MotorController:
                 zdirection = +1
                 self.goto_position('Z',zpos)
                 do_zstack = True
+            except MicrogravityTimeout:
+                raise
             except:
                 do_zstack = False
         t0 = time.time()
@@ -438,6 +441,8 @@ class MotorController:
                 zpos += zdirection*MOTOR_DZ_STEPSIZE
                 try:
                     self.goto_position(axis,zpos)
+                except MicrogravityTimeout:
+                    raise
                 except:
                     pass
             task()
@@ -449,6 +454,8 @@ class MotorController:
                 self.goto_position(axis,2048)
                 self.wheel_mode(axis,wheel=True)
                 time.sleep(0.2)
+            except MicrogravityTimeout:
+                raise
             except:
                 pass
 
