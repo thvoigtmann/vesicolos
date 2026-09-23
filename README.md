@@ -26,9 +26,51 @@ VESICOLOS was created by
 - Paulina Blair - science (DLR-FM / U Düsseldorf)
 - Christian Kahlo - software revision, spare parts ([VX4](https://sites.vx4.de/imprint))
 
+# Operating Setup and Procedure
+
+- VESICOLOS computer: Raspberry running `vesicolos.py`, configured
+  with a static-IP address `192.168.100.12`.
+- EGSE computer: configured with a static-IP network address
+  `192.168.100.42`.
+
+Countdown procedure:
+
+1. Prepare samples and insert sample slide into the microscope.
+2. Connect monitor, keyboard, mouse directly to the hardware, use program to find good sample positions and save them.
+3. Verify that recalling the stored positions is ok after program restart.
+4. Shutdown and insert hardware into the Nautilus pressure chamber.
+5. Connect directly to EGSE, verify that stored positions are ok, and shutdown again.
+6. Late-access: hardware is integrated into the main rocket module.
+7. Payload checkout: connect from EGSE via dedicated network, check that stored positions are ok.
+8. If dersired, shortly before LO start camera recording to have a video from the launch/ascent phase.
+8. Ready for liftoff!
+
+To see the video directly on the Raspberry, use
+```bash
+rpicam-vid -t 0
+```
+
+To control the program via EGSE, use
+```bash
+ssh vesicolos@192.168.100.12
+screen -d -r
+```
+
+To view the video from the EGSE, start the video stream in the program
+(using key `v`), and connect from EGSE using
+```bash
+ffplay -i udp://192.168.100.42:3333 -fflags nobuffer -flags low_delay -framedrop
+```
+
+In principle a remote-desktop connection using `xtigervncviewer` is possible,
+but we experienced that the Raspberry 5 might hang when using the
+`rpicam-vid` app over VNC.
+
+
+
 # Hardware Setup
 
-For the MAPHEUS-16 flight, we used a Raspberry 5, and the following
+For the MAPHEUS-16/17 flights, we used a Raspberry 5, and the following
 hardware setup:
 
 - Temperature sensor on SPI, 2-wire setup using Adafruit MAX31865 board.
@@ -73,13 +115,14 @@ Raspberry GPIO pin layout (using GPIO numbers, not physical pin numbers):
   ignore the underpower warning if it thinks that our power supply cannot
   handle 5V/5A (it can).
 - The EEPROM config should be adapted with the `rpi-eeprom-config` tool.
-  The flight configuration (MAPHEUS-16) was
   ```bash
   BOOT_UART=1
   BOOT_ORDER=0xf461
   NET_INSTALL_AT_POWER_ON=0
   PSU_MAX_CURRENT=5000
   ```
+- Configure the on-board ethernet adapter to use a static IP,
+  currently we use `192.168.100.12`.
 
 
 # Software Installation
@@ -88,6 +131,11 @@ Clone the repository, into `~/Desktop`:
 ```bash
 git clone git@github.com:thvoigtmann/vesicolos.git
 git submodule update --init
+```
+
+Install some software that is not installed by default,
+```bash
+sudo apt install screen
 ```
 
 Install the `lg` library needed for the `lgpio` package:
