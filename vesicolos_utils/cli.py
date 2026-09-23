@@ -59,7 +59,7 @@ class CLI:
         self.monitor.statusbar = self._print_bar
         return self
     def __exit__ (self, exc_type, exc_value, traceback):
-        if self.camera:
+        if setl.stop and self.camera:
             self.camera.stop()
             self.camera = None
         if self.videostream:
