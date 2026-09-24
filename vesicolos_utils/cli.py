@@ -142,6 +142,7 @@ class CLI:
                 func(self,*args)
             else:
                 self.user_help()
+                print("unknown key",ch)
     def notimpl(self, errmsg):
         """not implemented"""
         print ("NOT IMPLEMENTED / CONFIGURED:",errmsg)

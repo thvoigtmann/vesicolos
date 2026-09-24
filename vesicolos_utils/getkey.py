@@ -29,6 +29,12 @@ class Keys(IntEnum):
     F10 = 91*255*255 + 50*255 + 49         # ANSI Esc-[ 2 1 ~
     F11 = 91*255*255 + 50*255 + 51         # ANSI Esc-[ 2 3 ~
     F12 = 91*255*255 + 50*255 + 52         # ANSI Esc-[ 2 4 ~
+    if os.environ.get('TERM') == 'screen':
+        HOME = 91*255*255 + 49*255 + 126    # HOME as seen with TERM=screen
+        END = 91*255*255 + 52*255 + 126    # HOME as seen with TERM=screen
+    else:
+        HOME = 91*255 + 72       # ANSI Esc-[ H
+        END = 91*255 + 70        # ANSI Esc-[ F
     INSERT = 91*255*255 + 50*255 + 126     # ANSI Esc-[ 2 ~
     DELETE = 91*255*255 + 51*255 + 126     # ANSI Esc-[ 3 ~
     PGUP = 91*255*255 + 53*255 + 126       # ANSI Esc-[ 5 ~
@@ -37,8 +43,6 @@ class Keys(IntEnum):
     DOWN = 91*255 + 66       # ANSI Esc-[ B
     RIGHT = 91*255 + 67      # ANSI Esc-[ C
     LEFT = 91*255 + 68       # ANSI Esc-[ D
-    END = 91*255 + 70        # ANSI Esc-[ F
-    HOME = 91*255 + 72       # ANSI Esc-[ H
 
     @classmethod
     def has_value(cls, value: int) -> bool:

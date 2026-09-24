@@ -10,7 +10,7 @@ while True:
     try:
         chmap = next(k.name for k in reversed(Keys) if k==ch)
     except:
-        chmap = chr(ch)
+        chmap = ch
 
     print("CH",ch,chmap)
     if ch == Keys.ESC:
