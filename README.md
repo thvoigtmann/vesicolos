@@ -42,7 +42,7 @@ Countdown procedure:
 5. Connect directly to EGSE, verify that stored positions are ok, and shutdown again.
 6. Late-access: hardware is integrated into the main rocket module.
 7. Payload checkout: connect from EGSE via dedicated network, check that stored positions are ok.
-8. If dersired, shortly before LO start camera recording to have a video from the launch/ascent phase.
+8. If desired, shortly before LO start camera recording to have a video from the launch/ascent phase.
 8. Ready for liftoff!
 
 To see the video directly on the Raspberry, use
