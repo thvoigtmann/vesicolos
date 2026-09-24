@@ -1,1 +1,1 @@
-start_test.sh
+start_flight.sh
