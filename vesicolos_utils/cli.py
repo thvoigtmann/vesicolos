@@ -388,14 +388,14 @@ class CLI:
     def toggle_video_stream(self):
         """toggle network video stream"""
         if self.videostream is not None:
-            PRINT("VSTREAM OFF")
+            print("VSTREAM OFF")
             self.videostream.stop()
             self.videostream = None
         else:
             if self.camera is not None:
                 self.toggle_camera()
             try:
-                PRINT("VSTREAM ON")
+                print("VSTREAM ON")
                 self.videostream = CameraStream(target_ip=VIDEO_IP,log=self.log)
                 self.videostream.start()
             except Exception as e:
