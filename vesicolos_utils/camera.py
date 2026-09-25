@@ -1,8 +1,9 @@
 import picamera2
-#from libcamera import controls
+from libcamera import controls
 
 #cdn_off = controls.draft.NoiseReductionModeEnum.Off
 cdn_off = 0
+cdn_off = controls.draft.NoiseReductionModeEnum.ZSL
 camcontrols = {
     "NoiseReductionMode": cdn_off,
     #"AeEnable": False,
@@ -21,12 +22,14 @@ class CameraController ():
         self.imgpath_keys = keys
         self.ptsfile = pts
         self.picam = picamera2.Picamera2()
+        #target_mode = self.picam.sensor_modes[8]
         self.config = self.picam.create_video_configuration(
-                main={'size':(1920,1080)},
+                main={'size':(1920,1080)}, #sensor={'output_size': (1920,1080)},
+                #raw={'format': target_mode['unpacked'], 'size': target_mode['size']}, sensor={'output_size': target_mode['size']},
                 #main={'size':(3840,2160)},
                 controls=camcontrols)
         self.picam.configure(self.config)
-        self.encoder = picamera2.encoders.H264Encoder(10000000)
+        self.encoder = picamera2.encoders.H264Encoder(qp=10) #bitrate=50000000)
     def __del__ (self):
         self.stop()
     def record (self):
