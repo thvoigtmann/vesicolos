@@ -5,10 +5,10 @@ import picamera2
 cdn_off = 0
 camcontrols = {
     "NoiseReductionMode": cdn_off,
-    "FrameDurationLimits": (50000,50000),
-    "ExposureTime": (48000),
-    "AeEnable": False,
-    "AnalogueGain": 64.0,
+    #"AeEnable": False,
+    #"FrameDurationLimits": (50000,50000),
+    #"ExposureTime": (48000),
+    "AnalogueGain": 48.0,
     "Contrast": 1.5,
 }
 
