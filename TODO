@@ -1,12 +1,6 @@
 TESTS that came up during bench test M17:
 - check for motor holding (periodic current peaks) if payload is on its side?
 
-- check the bug with VNC and rpicam-vid
-  - idea: rpicam-vid -t 100000000 -l -o tcp://0.0.0.0:3333
-  - and on client vlc tcp/h264://192.168.100.12:3333
-  - if we do this, write code to log the current process to allow
-    ssh into the box and taking over
-  - looks like we could just run in `screen` ?
 
 try setting up multicast:
 sudo ip addr add 224.0.0.1 dev eth0 autojoin
