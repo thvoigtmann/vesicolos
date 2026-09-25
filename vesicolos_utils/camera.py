@@ -1,6 +1,17 @@
 import picamera2
 #from libcamera import controls
 
+#cdn_off = controls.draft.NoiseReductionModeEnum.Off
+cdn_off = 0
+camcontrols = {
+    "NoiseReductionMode": cdn_off,
+    "FrameDurationLimits": (50000,50000),
+    "ExposureTime": (48000),
+    "AeEnable": False,
+    "AnalogueGain": 64.0,
+    "Contrast": 1.5,
+}
+
 class CameraController ():
     def __init__ (self, filename, pts=None, keys={}, log=None):
         self.picam = None
@@ -11,9 +22,9 @@ class CameraController ():
         self.ptsfile = pts
         self.picam = picamera2.Picamera2()
         self.config = self.picam.create_video_configuration(
-                main={'size':(1920,1080)}
-                #main={'size':(3840,2160)}
-                )
+                main={'size':(1920,1080)},
+                #main={'size':(3840,2160)},
+                controls=camcontrols)
         self.picam.configure(self.config)
         self.encoder = picamera2.encoders.H264Encoder(10000000)
     def __del__ (self):
@@ -43,12 +54,9 @@ class CameraStream ():
     def __init__ (self, target_ip="0.0.0.0", udp_port=3333, log=None):
         self.log = log
         self.picam = picamera2.Picamera2()
-        #cdn_off = controls.draft.NoiseReductionModeEnum.Off
-        cdn_off = 0
         video_config = self.picam.create_video_configuration(
                 main={'size':(640,480)},
-                controls={"FrameDurationLimits": (33333,33333),
-                          "NoiseReductionMode": cdn_off})
+                controls=camcontrols)
         self.picam.configure(video_config)
         self.encoder = picamera2.encoders.H264Encoder(repeat=True,iperiod=15)
         self.output = picamera2.outputs.FfmpegOutput(f"-f h264 udp://{target_ip}:{udp_port}", audio=False)
