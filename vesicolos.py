@@ -251,12 +251,13 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
     # we now wait for either microgravity or for the corresponding timeout
 
     if not stop:
+        t0 = time.time() # our best guess at a lift-off time
         motor_controller.stop_all()
+        monitor.LOtime = t0
         # kill external previewer app if running, we want the cam ours now
         kill_proc_by_name(RPICAM_PROCESS, log)
         if not manual_lift_off:
             # this is a real lift off, we wait for mug now
-            t0 = time.time()
             # we record the ascent for sure, but if the user started before
             # we do not interrupt them
             if camera is None:

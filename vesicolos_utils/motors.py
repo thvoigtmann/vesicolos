@@ -511,6 +511,7 @@ class ServoMonitor():
                 self.wrap[ax] = 0
         self.status = global_status
         self.statusbar = print
+        self.LOtime = 0
         self._run()
     def _run (self):
         if not self.done:
@@ -552,8 +553,12 @@ class ServoMonitor():
                 else:
                     torqueinfo = 'ERROR'
                 flags = ' '.join([f"{k} {int(v)}" for k,v in self.status.items()])
+                if self.LOtime>0:
+                    tcnt = f'T+{int(self.next_t-self.LOtime):3d}s'
+                else:
+                    tcnt = f'+{int(self.next_t-self.t_init):5d}s'
                 self.statusbar(
-                        f"| CPU T={cpu_temp:.2f} SAMPLE T={sample_temp:.2f} D {self.t_init_str} +{int(self.next_t-self.t_init):5d}s {flags} {istr}\n"
+                        f"| CPU T={cpu_temp:.2f} SAMPLE T={sample_temp:.2f} D {self.t_init_str} {tcnt} {flags} {istr}\n"
                         f"| POS {posinfo} TRQ {torqueinfo}\n"
                         f"| VEL {velinfo} SET {velsetinfo} {estr}"
                 )
