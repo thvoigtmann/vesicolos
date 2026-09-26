@@ -66,17 +66,24 @@ def logSetup (path_template, logfile, templogfile):
 
 
 def load_restart (state, restartfile, log):
+    reload_state = {}
     try:
         with open(restartfile, 'r') as f:
             data = json.load(f)
             for k in state:
                  if k in data:
-                     state[k] = data[k]
+                     reload_state[k] = data[k]
         log.info("re-loaded state from restart file")
         if not "nominal_exit" in data:
             log.warn("non-nominal restart file? proceed with caution")
     except FileNotFoundError:
         pass
+    except Exception as e:
+        log.warn("corrupt restart file? ignoring")
+        return
+    # copy over settings without changing the reference to global state
+    for k in reload_state:
+        state[k] = reload_state[k]
 
 # save restart file every 10 seconds
 # intended to be called from its own subthread

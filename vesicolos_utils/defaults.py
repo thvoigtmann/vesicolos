@@ -24,16 +24,18 @@ ST_MOVING_ACC_SLOW = 10        # servo acceleration for slow movements
 # aim for slices 1mu apart => stepsize = 40 steps = 0.98mu
 # 50 such steps (half below, half above target) => scan depth 2000steps=48.8mu
 # we also specify the waiting time on each z position in the stack
-MOTOR_DZ_STEPSIZE = 10         # in steps, 4096 steps = 100mu
-MOTOR_DZ_STEPS = 50            # number of steps, scan depth = steps*stepsize
-MOTOR_DZ_WAIT = 0.1            # in seconds, wait time at each step
+# see below for new defaults per axis
+#MOTOR_DZ_STEPSIZE = 10         # in steps, 4096 steps = 100mu
+#MOTOR_DZ_STEPS = 50            # number of steps, scan depth = steps*stepsize
+#MOTOR_DZ_WAIT = 0.1            # in seconds, wait time at each step
 # if we loose internet connection we don't want the motors to move
 # indefinitely, so there is a timeout in interactive mode
 MOTOR_TIMEOUT = 30              # seconds until motor stop in unattended UI mode
 SERVOS = {
   '_default_': { 'SPEED_INC': 200, 'MAX_TORQUE': 200 },
   'X': { 'MAX_TORQUE': 500 },
-  'Z': { 'SPEED_INC': 40 },
+  'Y': { 'STACK_STEPS': 50, 'STACK_STEPSIZE': 10, 'STACK_WAIT': 0.1 },
+  'Z': { 'SPEED_INC': 40, 'STACK_STEPS': 50, 'STACK_STEPSIZE': 10, 'STACK_WAIT': 0.1 },
   #'Z': { 'SPEED_INC': 40, 'MAX_WRAP': 1 }
 }
 # mapping of keys to control the Cartesian axes and their directions

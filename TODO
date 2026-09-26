@@ -1,10 +1,23 @@
-TESTS that came up during bench test M17:
-- check for motor holding (periodic current peaks) if payload is on its side?
+from VESICOLOS flightsim:
+[ ] suddenly wrap counter was messing with me again
+[ ] X axis control super difficult (torque?)
+    - leave X axis movement out except for initial search?
+    - keep one position, do stack in both Y and Z
+[?] some keystrokes were counted twice (v)
+    - fixed with 3a1f6f82 ?
+[?] random hang still occurs
+    - check memory consumption? not the issue
+    - fixed with new DC/DC converter?
+[ ] - add M17 flight config to git, add FLIGHTMODE: True
+      add FLIGHTMODE: False to test config
 
+before TCD:
+- move dev branch to main branch
+- make a version tag m17-tcd
 
-try setting up multicast:
-sudo ip addr add 224.0.0.1 dev eth0 autojoin
-rpicam-vid --low-latency --level 4.2 --framerate 30 --width 640 --height 480 -t 0 --denoise cdn_off -n -o udp://192.168.100.42:3333
+nice to have:
+- check larger resolution video recordings
+
 
 hardware
 - sensor to code home position and absolute positions of stage
@@ -12,35 +25,10 @@ hardware
 - check raspberry 5 for vibration resilience
 - add m.2 ssd for fast video writing
 
-new motor driver software
-- test the SyncRead code, this should be better, but currently only the
-  first servo responds, check the documents again and see what the code
-  sends and if this is correct
-- torque limiting not yet coded
-- make a requirements.txt with pip-chill
-
 software (ideas from last flight)
 - with threads, should use thread.join() (why, to wait at end?)
-- switch UI mode to pynput, test on raspian
-- test UI also over high-latency link (vnc etc)
-- how to drive motors, can we avoid wheel mode as much as possible?
-  - to test, can the goto be interrupted while the motor is driving?
-  - if so, could use a large delta to drive and then stop at any time
-  - see below of idea of MotorHandler
-- torque detection for motors, code recognition of home position
-- switch to sync_read to query all positions
-- set frame rate for recording, check different modes
-- allow to set gain, etc via software
-- build a small UI?
 - AI recognition of sharp images?
 
-
-class MotorHandler:
-- method to goto specified position
-  - call API for goto
-  - enter waiting loop to query ismoving, but also some interrupt flag
-  - is this loop where we also query for the torque and abort on limit?
-  - the method should recall what it set as aim and query if that target changed
 
 
 NEW

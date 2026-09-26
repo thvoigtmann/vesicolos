@@ -10,7 +10,7 @@ from serial.serialutil import SerialException
 
 from . import Word16
 
-from .defaults import MOTOR_DZ_STEPSIZE, MOTOR_DZ_STEPS
+#from .defaults import MOTOR_DZ_STEPSIZE, MOTOR_DZ_STEPS
 from . import MicrogravityTimeout
 
 #import ansi
@@ -415,6 +415,9 @@ class MotorController:
         do_zstack = False
         if axis in self.axes:
             try:
+                steps = self.motorconf['STACK_STEPS']
+                stepsize = self.motorconf['STACK_STEPSIZE']
+                wait = self.motorconf['STACK_WAIT']
                 self.wheel_mode(axis,wheel=False)
                 time.sleep(0.2)
                 self.set_middle(axis)
@@ -430,29 +433,33 @@ class MotorController:
                 # and thus the following code should work if we
                 # replace 2048 by the current position??
                 zpos = 2048 # + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
-                zcnt = int(MOTOR_DZ_STEPS/2)
+                zcnt = int(steps/2)
                 zdirection = +1
                 self.goto_position('Z',zpos)
+                self.log.info(f'performing {axis} axis stack')
                 do_zstack = True
             except MicrogravityTimeout:
                 raise
+            except KeyError:
+                self.log.error(f'stack for axis {axis} not configured')
+                do_zstack = False
             except:
                 do_zstack = False
         t0 = time.time()
         while True:
             if do_zstack:
-                if zcnt >= MOTOR_DZ_STEPS:
+                if zcnt >= steps:
                     zdirection = -zdirection
                     zcnt = 0
                 zcnt += 1
-                zpos += zdirection*MOTOR_DZ_STEPSIZE
+                zpos += zdirection*stepsize
                 try:
                     self.goto_position(axis,zpos)
                 except MicrogravityTimeout:
                     raise
                 except:
                     pass
-            task()
+            task(wait)
             if time.time() > t0 + tmax:
                 break
         if do_zstack:
@@ -513,6 +520,7 @@ class ServoMonitor():
                 self.wrap[ax] = 0
         self.status = global_status
         self.statusbar = print
+        self.LOtime = 0
         self._run()
     def _run (self):
         if not self.done:
@@ -554,8 +562,12 @@ class ServoMonitor():
                 else:
                     torqueinfo = 'ERROR'
                 flags = ' '.join([f"{k} {int(v)}" for k,v in self.status.items()])
+                if self.LOtime>0:
+                    tcnt = f'T+{int(self.next_t-self.LOtime):3d}s'
+                else:
+                    tcnt = f'+{int(self.next_t-self.t_init):5d}s'
                 self.statusbar(
-                        f"| CPU T={cpu_temp:.2f} SAMPLE T={sample_temp:.2f} D {self.t_init_str} +{int(self.next_t-self.t_init):5d}s {flags} {istr}\n"
+                        f"| CPU T={cpu_temp:.2f} SAMPLE T={sample_temp:.2f} D {self.t_init_str} {tcnt} {flags} {istr}\n"
                         f"| POS {posinfo} TRQ {torqueinfo}\n"
                         f"| VEL {velinfo} SET {velsetinfo} {estr}"
                 )

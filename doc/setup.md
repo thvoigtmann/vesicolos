@@ -43,3 +43,11 @@ How to setup fixed IP: something like
 ```bash
 nmcli con add con-name vesicolos ifname enx00800f11732f type ethernet ip4 192.168.100.42/24
 ```
+
+# Miscellanea for testing
+
+To start a video stream on the raspi, use
+```bash
+rpicam-vid --low-latency --level 4.2 --framerate 30 --width 640 --height 480 -t 0 --denoise cdn_off -n -o udp://192.168.100.42:3333
+```
+
