@@ -34,7 +34,7 @@ MOTOR_TIMEOUT = 30              # seconds until motor stop in unattended UI mode
 SERVOS = {
   '_default_': { 'SPEED_INC': 200, 'MAX_TORQUE': 200 },
   'X': { 'MAX_TORQUE': 500 },
-  'Y': { 'STACK_STEPS': 50, 'STACK_STEPSIZE': 10, 'STACK_WAIT': 0.1 },
+  'Y': { 'STACK_STEPS': 35, 'STACK_STEPSIZE': 10, 'STACK_WAIT': 0.1 },
   'Z': { 'SPEED_INC': 40, 'STACK_STEPS': 50, 'STACK_STEPSIZE': 10, 'STACK_WAIT': 0.1 },
   #'Z': { 'SPEED_INC': 40, 'MAX_WRAP': 1 }
 }
