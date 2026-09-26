@@ -180,8 +180,11 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
     fc = load_flight_config (CONFPATH, log)
     SOE_TIMEOUT = fc.get('SOE_TIMEOUT', SOE_TIMEOUT_DEFAULT)
     EXP_TIMEOUT = fc.get('EXP_TIMEOUT', EXP_TIMEOUT_DEFAULT)
+    FLIGHTMODE = fc.get('FLIGHTMODE', False)
     log.info(f"SOE TIMEOUT {SOE_TIMEOUT}")
     log.info(f"EXP TIMEOUT {EXP_TIMEOUT}")
+    if FLIGHTMODE:
+        log.info(f"FLIGHTMODE")
 
     threading.Thread(target=save_restart,args=[prog_end,RESTARTFILE,STATE_VARS]).start()
 
@@ -413,3 +416,7 @@ if camera is not None:
 
 print('END')
 log.info('EXIT')
+
+if FLIGHTMODE:
+    import subprocess
+    subprocess.run(["sudo","shutdown","-h","now"])
