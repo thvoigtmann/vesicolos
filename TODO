@@ -8,8 +8,6 @@ from VESICOLOS flightsim:
 [?] random hang still occurs
     - check memory consumption? not the issue
     - fixed with new DC/DC converter?
-[ ] - add M17 flight config to git, add FLIGHTMODE: True
-      add FLIGHTMODE: False to test config
 
 before TCD:
 - move dev branch to main branch

@@ -33,7 +33,7 @@ from vesicolos_utils.defaults import *
 STATE_VARS = {
     'user.positions': {},
     'user.temperatures': {
-        'default': { 'type': 'ramp', 'Tmin': 25, 'Tmax': 40, 'dt': 30, 'tstart': 10, 'tmax': 90 }
+        'default': { 'type': 'ramp', 'Tmin': 25, 'Tmax': 30, 'dt': 60, 'tstart': 10, 'tmax': 110 }
     },
     'motor.pos': {},
     'motor.wrap': {}
