@@ -415,9 +415,9 @@ class MotorController:
         do_zstack = False
         if axis in self.axes:
             try:
-                steps = self.motorconf['STACK_STEPS']
-                stepsize = self.motorconf['STACK_STEPSIZE']
-                wait = self.motorconf['STACK_WAIT']
+                steps = self.motorconf[axis]['STACK_STEPS']
+                stepsize = self.motorconf[axis]['STACK_STEPSIZE']
+                wait = self.motorconf[axis]['STACK_WAIT']
                 self.wheel_mode(axis,wheel=False)
                 time.sleep(0.2)
                 self.set_middle(axis)
