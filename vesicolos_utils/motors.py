@@ -500,6 +500,8 @@ class ServoMonitor():
         self.state_valid = True
         for ax in self.motors.axes:
             if ax in self.pos:
+                if self.pos[ax] is None:
+                    self.pos[ax] = pos[ax]
                 if success and not (abs(self.pos[ax]-pos[ax])<5):
                     self.motors.log.error(f"{ax} axis mismatch of position: restart {self.pos[ax]} / current {pos[ax]}")
                     self.pos[ax] = pos[ax]
@@ -543,10 +545,10 @@ class ServoMonitor():
                 else:
                     posinfo = 'ERROR'
                 if self.vel is not None:
-                    velinfo = '  '.join([ ax + f' {vel:4d}' for ax,vel in self.vel.items() ])
+                    velinfo = '  '.join([ ax + f' {vel or -1:4d}' for ax,vel in self.vel.items() ])
                 else:
                     velinfo = 'ERROR'
-                velsetinfo = '  '.join([ ax + f' {vset:4d}' for ax,vset in self.motors.current_set_speed.items()])
+                velsetinfo = '  '.join([ ax + f' {vset or -1:4d}' for ax,vset in self.motors.current_set_speed.items()])
                 if self.torque is not None:
                     torqueinfo = '  '.join([ ax + f' {trq or -1:4d}' for ax,trq in self.torque.items() ])
                 else:
