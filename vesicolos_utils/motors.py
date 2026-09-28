@@ -463,6 +463,7 @@ class MotorController:
             if time.time() > t0 + tmax:
                 break
         if do_zstack:
+            self.log.info(f'{axis} axis stack done')
             try:
                 # let's move back to where we were, else the wrap could mess
                 self.goto_position(axis,2048)

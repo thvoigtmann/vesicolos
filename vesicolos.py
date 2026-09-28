@@ -336,31 +336,31 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
             for pos in positions:
                 if pos == 'homepos':
                     continue
-                ckey = make_camera_key(recordings, pos, pre='mug_')
-                recordings.append(ckey)
-                try:
-                    camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey},log=log)
-                    threading.Thread(target=camera.record).start()
-                except ModuleNotFoundError as e:
-                    camera = None
-                    log.error('camera module missing! '+str(e))
-                except RuntimeError as e:
-                    camera = None
-                    log.error('camera error '+str(e))
-                if not pos == 'default':
-                    motor_controller.move_to_position (STATE_VARS['user.positions'][pos], monitor.wrap)
-                    stack_axis = 'Z'
-                else:
-                    stack_axis = 'Z'
-                Tcontrol.set_profile (pos)
-                # take some time, do z-stacks
                 tmax = STATE_VARS['user.temperatures'].get(pos,{}).get('tmax',TMAX_DEFAULT)
-                motor_controller.zstack (stack_axis,
-                                         lambda wait: time.sleep(wait),
-                                         tmax=tmax)
-                if not camera is None:
-                    camera.stop()
-                os.sync()
+                def imgstack (wait):
+                    ckey = make_camera_key(recordings, pos, pre='mug_')
+                    recordings.append(ckey)
+                    try:
+                        camera = CameraController(camfile,pts=ptsfile,keys={'pos':ckey},log=log)
+                        threading.Thread(target=camera.record).start()
+                    except ModuleNotFoundError as e:
+                        camera = None
+                        log.error('camera module missing! '+str(e))
+                    except RuntimeError as e:
+                        camera = None
+                        log.error('camera error '+str(e))
+                    if not pos == 'default':
+                        motor_controller.move_to_position (STATE_VARS['user.positions'][pos], monitor.wrap)
+                        stack_axis = 'Z'
+                    else:
+                        stack_axis = 'Z'
+                    Tcontrol.set_profile (pos)
+                    # take some time, do z-stacks
+                    motor_controller.zstack('Z', lambda wait: time.sleep(wait), tmax=tmax)
+                    if not camera is None:
+                        camera.stop()
+                    os.sync()
+                motor_controller.zstack ('Y', imgstack, tmax=tmax*50)
     
     
     if not stop:
