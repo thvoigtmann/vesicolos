@@ -1,6 +1,8 @@
 from VESICOLOS flightsim:
 [ ] suddenly wrap counter was messing with me again
 [ ] X axis control super difficult (torque?)
+    - leave X axis movement out except for initial search?
+    - keep one position, do stack in both Y and Z
 [?] some keystrokes were counted twice (v)
     - fixed with 3a1f6f82 ?
 [?] random hang still occurs

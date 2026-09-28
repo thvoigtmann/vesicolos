@@ -312,8 +312,25 @@ class CLI:
             tmax=0
         if tmax>0:
             print("performing stack motion on axis",self.current_axis)
-            self.motor_controller.zstack(self.current_axis, lambda: time.sleep(0.1),
+            self.motor_controller.zstack(self.current_axis, lambda wait: time.sleep(wait),
                                          tmax=tmax)
+            print("done")
+        self.monitor.start()
+    def do_stack2(self):
+        """perform y- and z-stack"""
+        self.motor_controller.stop_all()
+        self.monitor.stop()
+        tmax = input('duration per z stack? ')
+        try:
+            tmax = int(tmax)
+        except ValueError:
+            print ("illegal input")
+            tmax=0
+        if tmax>0:
+            print("performing Y- and Z-stack")
+            def imgstack (wait):
+                self.motor_controller.zstack('Z', lambda wait: time.sleep(wait), tmax=tmax)
+            self.motor_controller.zstack('Y', imgstack, tmax=tmax*10)
             print("done")
         self.monitor.start()
     def toggle_led(self):
@@ -436,6 +453,7 @@ keymap = {
     ord('h'): (CLI.toggle_heater,),
     ord('t'): (CLI.enter_temperature_ramp,),
     ord('!'): (CLI.do_stack,),
+    ord('@'): (CLI.do_stack2,),
     ord('*'): (CLI.liftoff,),
     ord('c'): (CLI.toggle_camera,),
     ord('?'): (CLI.user_help,)
