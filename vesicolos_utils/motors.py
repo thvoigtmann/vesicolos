@@ -189,7 +189,10 @@ class MotorController:
         return self
     def __exit__ (self, exc_type, exc_value, traceback):
         self.log.debug("stopping all motors")
-        self.stop_all()
+        try:
+            self.stop_all()
+        except Exception as e:
+            self.log.error("error stopping motors: "+str(e))
         if self.controller:
             self.wheel_mode()
             self.torque_control(enable=False)
