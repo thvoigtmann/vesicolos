@@ -58,8 +58,7 @@ class CameraStream ():
         self.log = log
         self.picam = picamera2.Picamera2()
         video_config = self.picam.create_video_configuration(
-                main={'size':(640,480)},
-                controls=camcontrols)
+                main={'size':(640,480)}, controls=camcontrols)
         self.picam.configure(video_config)
         self.encoder = picamera2.encoders.H264Encoder(repeat=True,iperiod=15)
         self.output = picamera2.outputs.FfmpegOutput(f"-f h264 udp://{target_ip}:{udp_port}", audio=False)
@@ -74,6 +73,6 @@ class CameraStream ():
         if self.picam is not None:
             self.picam.stop_recording()
             if self.log is not None:
-                self.log.info("START videostream")
+                self.log.info("STOP videostream")
             self.picam.close()
             self.picam = None

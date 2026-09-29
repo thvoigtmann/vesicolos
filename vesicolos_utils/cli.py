@@ -414,7 +414,8 @@ class CLI:
             try:
                 print("VSTREAM ON")
                 self.videostream = CameraStream(target_ip=VIDEO_IP,log=self.log)
-                threading.Thread(target=self.videostream.start).start()
+                #threading.Thread(target=self.videostream.start).start()
+                self.videostream.start()
             except Exception as e:
                 self.videostream = None
                 self.log.error("could not start stream: "+str(e))
