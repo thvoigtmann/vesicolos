@@ -220,5 +220,5 @@ modification-time stamp will be used. Currently, we set
 # Code Details
 
 For some more technical notes, see:
-- [doc/ST3020.md](ST3020 Servo EEPROM and SRAM registers)
-- [doc/setup.md](setup) for the flight-hardware network and git
+- [ST3020 Servo EEPROM and SRAM registers](doc/ST3020.md)
+- [setup](doc/setup.md) for the flight-hardware network and git
