@@ -419,5 +419,8 @@ print('END')
 log.info('EXIT')
 
 if FLIGHTMODE:
-    import subprocess
-    subprocess.run(["sudo","shutdown","-h","now"])
+    if stop:
+        print("manual exit, no shutdown")
+    else:
+        import subprocess
+        subprocess.run(["sudo","shutdown","-h","now"])
