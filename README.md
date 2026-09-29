@@ -123,6 +123,23 @@ Raspberry GPIO pin layout (using GPIO numbers, not physical pin numbers):
   ```
 - Configure the on-board ethernet adapter to use a static IP,
   currently we use `192.168.100.12`.
+- Setup `ntp`: on the EGSE computer, perform
+  ```bash
+  sudo apt install ntpsec
+  vim /etc/ntpsec/ntp.conf
+  # add nopeer to restrict line
+  # add line "restrict 192.168.100.12 nomodify nopeer notrap"
+  service ntpsec restart
+  ```
+  On the VESICOLOS computer, while connected (only) to the EGSE computer
+  via LAN, perform
+  ```
+  sudo timedatectl set-ntp False
+  sudo timedatectl set-ntp True
+  sudo timedatectl
+  ```
+  This should force the time-and-date control to resync with the NTP
+  server. This way, we get good timestamps during the countdowns.
 
 
 # Software Installation
