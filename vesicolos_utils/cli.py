@@ -1,0 +1,463 @@
+import logging, time, os, sys
+import threading
+from vesicolos_utils import getkey, Keys, make_camera_key
+from vesicolos_utils.camera import CameraController, CameraStream
+
+from vesicolos_utils.defaults import VIDEO_IP
+
+
+
+# in principle, a GUI could derive from this class
+class CLI:
+    def __init__ (self, motor_controller=None, monitor=None, led=None, heater=None, keymap={}, movement_map={}, state={}, camfile='', ptsfile=''):
+        self.motor_controller = motor_controller
+        if motor_controller is not None:
+            self.motors = motor_controller._servos
+        else:
+            self.motors = None
+        self.monitor = monitor
+        self.led = led
+        self.heater = heater
+        self.camera = None
+        self.videostream = None
+        self.recordings = []
+        self.keymap = keymap
+        self.camfile = camfile
+        self.ptsfile = ptsfile
+        if movement_map:
+            for k,m in movement_map.items():
+                self.keymap[k] = (CLI.movement, m['axis'], m['dir'])
+        #self.log = logging.getLogger("VESICOLOS UI")
+        self.log = logging.getLogger("VESICOLOS")
+        # TODO FIXME
+        # provide factory methods to make loggers with common formatting
+        # sanity check
+        for feature, featname, dependency in [
+            (self.motors,"motors",[CLI.movement,CLI.stop_all,CLI.store_position,CLI.recall_position,CLI.store_home_position,CLI.recall_home_position]),
+            (self.led,"LED",[CLI.toggle_led]),
+            (self.heater,"heater",[CLI.toggle_heater])
+            ]:
+            if feature is None or not feature:
+                self.log.warn(f"feature {featname} not configured")
+                for k,m in self.keymap.items():
+                    if m[0] in dependency:
+                        self.keymap[k] = (CLI.notimpl,f"({featname} missing)")
+        #self.motor_moving = False # FIXME
+        self.stop = False
+        self.last_savepos = None
+        # if the caller included positions and temperatures as state variables
+        # the following hopefully points us to those global arrays(!?)
+        # then the automatic periodic state-saving will include these
+        self.stored_positions = state.get('user.positions', {})
+        self.stored_temperatures = state.get('user.temperatures', {})
+        #
+        self.current_axis = None
+        #
+        self._tsize = None
+        self.__stdout = open(sys.stdout.fileno(), mode='wb', buffering=0, closefd=False)
+    def __enter__ (self):
+        self._add_bar()
+        self.monitor.statusbar = self._print_bar
+        return self
+    def __exit__ (self, exc_type, exc_value, traceback):
+        if self.stop and self.camera:
+            self.camera.stop()
+            self.camera = None
+        if self.videostream:
+            self.videostream.stop()
+            self.videostream = None
+        self.monitor.statusbar = print
+        self._remove_bar()
+        pass
+    def _add_bar (self):
+        # setup pretty-printing on terminal
+        size = os.get_terminal_size()
+        if size != self._tsize:
+            scroll = size.lines - 3
+            self.__stdout.write(
+                b'\0337' # save cursor and attributes
+                b'\033[r' # reset scroll region (moves cursor)
+                b'\0338' # restore cursor and attributes
+                b'\033D' # move/scroll down
+                b'\033D' # move/scroll down
+                b'\033D' # move/scroll down
+                b'\033M' # move up
+                b'\033M' # move up
+                b'\033M' # move up
+                b'\0337' # save cursor and attributes
+                b'\033[1;%dr' # set scroll region
+                b'\0338' # restore cursor and attributes
+                % scroll)
+            self._tsize = size
+    def _print_bar (self, bar : str) -> None:
+        self.__stdout.write(
+            b'\0337' # save cursor and attributes
+            b'\033[%d;1H' # move cursor to bottom row, first column
+            b'\033[?7l' # disable line wrap
+            b'\033[0m' # clear attributes
+            b'%s' # print bar
+            b'\033[?7h' # enable line wrap
+            b'\0338' # restore cursor and attributes
+            % (self._tsize.lines - 2, bar.encode()))
+    def _remove_bar (self) -> None:
+        if self._tsize is not None:
+            self.__stdout.write(
+                b'\0337' # save cursor position
+                b'\033[%d;1H' # move cursor to bottom row, first column
+                b'\033[K' # clear entire line
+                b'\033D' # move/scroll down
+                b'\033[K' # clear entire line
+                b'\033D' # move/scroll down
+                b'\033[K' # clear entire line
+                b'\033[r' # reset scroll region
+                b'\0338' # restore cursor position
+                % (self._tsize.lines - 2))
+            self._tsize = None
+    def start (self, stop_event):
+        """Start the UI loop, processing key strokes and performing the
+        relevant actions. Interrupted if `stop_event.is_set()` from the
+        main thread."""
+        self.stop = False
+        self.stop_event = stop_event
+        while not stop_event.is_set():
+            ch = getkey()
+            if ch is None:
+                # TODO FIXME implement motor-moving timeout here?
+                # this could also be the job of the monitor
+                # (who would need to have this set off after LO or not?)
+                #if motor_moving and motor_timeout > 0:
+                #    motor_timeout -= 1
+                #    if motor_timeout <= 0:
+                #        if self.motors and self.motor_controller.stop_all():
+                #            motor_timeout = MOTOR_TIMEOUT
+                continue
+            if ch == Keys.ESC:
+                self.stop = True
+                print("GOOD-BYE")
+                self.log.info("user exit (esc)")
+                stop_event.set()
+                continue
+            if ch in self.keymap:
+                func, *args = (*self.keymap[ch],)
+                func(self,*args)
+            else:
+                self.user_help()
+                print("unknown key",ch)
+    def notimpl(self, errmsg):
+        """not implemented"""
+        print ("NOT IMPLEMENTED / CONFIGURED:",errmsg)
+    def user_help(self):
+        """help"""
+        helpmap = {}
+        for ch in self.keymap:
+            if ch<32 or ch>255:
+                chmap = next(k.name for k in reversed(Keys) if k==ch)
+            else:
+                chmap = chr(ch)
+            func, *args = (*self.keymap[ch],)
+            if args:
+                args = ' '.join([str(_) for _ in args])
+            else:
+                args = ''
+            if not func in helpmap:
+                helpmap[func] = (func.__doc__, { chmap: args })
+            else:
+                helpmap[func][1][chmap] = args
+            #print("{k:8.8s} - {doc}{args}".format(k=chmap,doc=self.keymap[ch][0].__doc__,args=args))
+        for f in helpmap:
+            keys = '/'.join(helpmap[f][1].keys())
+            args = ' '+'/'.join(helpmap[f][1].values())
+            print("{k:16.16s} - {doc}{args}".format(k=keys,doc=helpmap[f][0],args=args))
+        print("___")
+        for poskey in ['homepos']+['savepos'+str(i) for i in range(1,5)]:
+            if poskey in self.stored_positions:
+                print (' ',poskey,self.stored_positions[poskey])
+        print("___")
+        if not self.camera is None:
+            print ('  camera is recording ('+self.recordings[-1]+')')
+    def movement (self, ax, direction):
+        """move x / y / z-position"""
+        if not ax in self.motor_controller.axes:
+            return
+        vel = self.motor_controller.current_set_speed[ax] \
+            + direction * self.motor_controller.motorconf[ax]['SPEED_INC']
+        res, rvel = self.motor_controller.set_speed(ax, vel, return_read=True)
+        # TODO FIXME do we need motor_moving? should set here if needed
+        self.log.debug(f"{ax} set_vel = {vel}, read_vel = {rvel}")
+    def stop_all (self):
+        """stop all motors"""
+        res = self.motor_controller.stop_all()
+        if res:
+            self.log.debug("motors stop")
+    def store_position (self, num):
+        """store position"""
+        self.motor_controller.stop_all()
+        time.sleep(0.2)
+        if num == 0:
+            poskey = 'homepos'
+        else:
+            poskey = 'savepos'+str(num)
+        success = self.monitor.update_pos()
+        if success:
+            self.stored_positions[poskey] = {}
+            for ax in self.motor_controller.axes:
+                self.stored_positions[poskey][ax] = (self.monitor.pos[ax],self.monitor.wrap[ax])
+            print ('saved',poskey,self.monitor.pos,self.monitor.wrap)
+            self.last_savepos = poskey
+    def store_home_position (self):
+        """store home position"""
+        self.store_position(0)
+    def recall_position(self, num):
+        """recall stored position"""
+        if num == 0:
+            poskey = 'homepos'
+        else:
+            poskey = 'savepos'+str(num)
+        if not (poskey in self.stored_positions):
+            print ('no position',poskey,'saved')
+        else:
+            self.motor_controller.stop_all()
+            time.sleep(0.2)
+            self.monitor.stop()
+            self.log.info(f"moving to stored position {poskey}")
+            self.motor_controller.move_to_position(self.stored_positions[poskey],self.monitor.wrap)
+            self.log.info("move to stored position: done")
+            # FIXME make log function to record positions
+            self.monitor.start()
+            self.last_savepos = poskey
+    def recall_home_position (self):
+        """recall home position"""
+        self.recall_position(0)
+    def goto_position(self):
+        """goto a specific position (servo mode)"""
+        if not self.current_axis in self.motor_controller.axes:
+            print ("no workable axis set")
+            return
+        ax = self.current_axis
+        self.motor_controller.stop_all()
+        self.monitor.stop()
+        posstr = input('position (servo mode)? ')
+        try:
+            pos = int(posstr)
+        except ValueError:
+            print ("illegal position")
+            pos = None
+        if pos is not None:
+            self.motor_controller.wheel_mode(ax,False)
+            time.sleep(0.2)
+            self.motor_controller.goto_position(ax,pos,wait_moving=True)
+            time.sleep(0.2)
+            self.motor_controller.wheel_mode(ax,True)
+        self.monitor.start()
+    def set_middle (self):
+        """reset motor position to 2048"""
+        if not self.current_axis in self.motor_controller.axes:
+            print ("no workable axis set")
+            return
+        self.motor_controller.stop_all()
+        time.sleep(0.2)
+        self.motor_controller.set_middle(self.current_axis)
+    #def set_velocity (self):
+    #    """set the velocity of a motor by hand"""
+    #    if not self.current_axis in self.motor_controller.axes:
+    #        print ("no workable axis set")
+    #        return
+    #    ax = self.current_axis
+    #    self.motor_controller.stop_all()
+    #    self.monitor.stop()
+    #    velstr = input('velocity? ')
+    #    try:
+    #        vel = int(velstr)
+    #    except ValueError:
+    #        print ("illegal input")
+    #        vel = None
+    #    if vel is not None:
+    #        res, rvel = self.motor_controller.set_speed(ax, vel, return_read=True)
+    #        print("rvel",rvel)
+    #        print("res",res)
+    #    self.monitor.start()
+    def set_axis (self, ax):
+        """set current working axis"""
+        if ax in self.motor_controller.axes:
+            self.current_axis = ax
+            print ("controlling axis",ax)
+    def query_position(self):
+        """query motor positions"""
+        self.motor_controller.stop_all()
+        self.monitor.stop()
+        wheelpos = self.motor_controller.read_position()
+        time.sleep(0.2)
+        self.motor_controller.wheel_mode(axis='',wheel=False)
+        time.sleep(0.2)
+        servopos = self.motor_controller.read_position()
+        time.sleep(0.2)
+        self.motor_controller.wheel_mode(axis='',wheel=True)
+        print ("current position (wheel)",wheelpos)
+        print ("current position (servo)",servopos)
+        delta = { ax: wheelpos[ax]-servopos[ax] for ax in wheelpos }
+        print ("delta",delta)
+        self.monitor.start()
+    def do_stack(self):
+        """perform stack"""
+        if not self.current_axis in self.motor_controller.axes:
+            print("no workable axis set")
+            return
+        self.motor_controller.stop_all()
+        self.monitor.stop()
+        tmax = input('duration? ')
+        try:
+            tmax = int(tmax)
+        except ValueError:
+            print ("illegal input")
+            tmax=0
+        if tmax>0:
+            print("performing stack motion on axis",self.current_axis)
+            self.motor_controller.zstack(self.current_axis, lambda wait: time.sleep(wait),
+                                         tmax=tmax)
+            print("done")
+        self.monitor.start()
+    def do_stack2(self):
+        """perform y- and z-stack"""
+        self.motor_controller.stop_all()
+        self.monitor.stop()
+        tmax = input('duration per z stack? ')
+        try:
+            tmax = int(tmax)
+        except ValueError:
+            print ("illegal input")
+            tmax=0
+        if tmax>0:
+            print("performing Y- and Z-stack")
+            def imgstack (wait):
+                self.motor_controller.zstack('Z', lambda wait: time.sleep(wait), tmax=tmax)
+            self.motor_controller.zstack('Y', imgstack, tmax=tmax*10)
+            print("done")
+        self.monitor.start()
+    def toggle_led(self):
+        """toggle LED"""
+        self.led.toggle()
+        self.log.info('LED {}'.format(['OFF','ON'][self.led.is_active]))
+    def toggle_heater(self):
+        """toggle heater"""
+        self.heater.toggle()
+        self.log.info(f"HEATER PWM active {self.heater.is_active} value {self.heater.value}")
+    def enter_temperature_ramp(self):
+        """enter temperature parameters"""
+        # TODO FIXME does this work!?
+        global T_SIGNATURE
+        if self.motors:
+            self.motor_controller.stop_all()
+        self.monitor.stop()
+        tkey = self.last_savepos or 'default'
+        print ("enter temperature ramp parameters for",tkey,\
+               "(empty for default)")
+        if tkey in self.stored_temperatures:
+            tkey_defaults = tkey
+        else:
+            tkey_defaults = 'default'
+        Tparam = T_SIGNATURE
+        defaults, inputs = {}, {}
+        fail = False
+        for t in Tparam:
+            defaults[t] = self.stored_temperatures.get(tkey_defaults,{}).get(t,0)
+            instr = input("{t} = [{d}]".format(t=t,d=defaults[t]))
+            if not instr:
+                inputs[t] = defaults[t]
+            else:
+                try:
+                    inputs[t] = float(instr)
+                except ValueError:
+                    print("illegal input, ignoring")
+                    fail = True
+                    break
+        if not fail:
+            self.stored_temperatures[tkey] = inputs
+            print("temperature ramp",tkey,self.stored_temperatures[tkey])
+        self.monitor.start()
+    def liftoff(self):
+        """manual lift off"""
+        self.log.info("MANUAL LIFT OFF")
+        self.stop_event.set()
+    def toggle_camera(self):
+        """toggle user camera recording"""
+        if self.camera is not None:
+            print("CAMERA OFF")
+            self.camera.stop()
+            self.camera = None
+        else:
+            if self.videostream is not None:
+                self.toggle_video_stream()
+            print("CAMERA ON")
+            ckey = make_camera_key (self.recordings, self.last_savepos or 'launch', pre='user_')
+            self.recordings.append(ckey)
+            try:
+                self.camera = CameraController(self.camfile,pts=self.ptsfile,keys={'pos':ckey},log=self.log)
+                threading.Thread(target=self.camera.record).start()
+            except ModuleNotFoundError as e:
+                self.camera = None
+                self.log.error('could not load camera module: '+str(e))
+            except RuntimeError as e:
+                self.camera = None
+                self.log.error("could not start camera: "+str(e))
+            except Exception as e:
+                self.camera = None
+                self.log.error("unknown camera error "+str(e))
+    def toggle_video_stream(self):
+        """toggle network video stream"""
+        if self.videostream is not None:
+            print("VSTREAM OFF")
+            self.videostream.stop()
+            self.videostream = None
+        else:
+            if self.camera is not None:
+                self.toggle_camera()
+            try:
+                print("VSTREAM ON")
+                self.videostream = CameraStream(target_ip=VIDEO_IP,log=self.log)
+                #threading.Thread(target=self.videostream.start).start()
+                self.videostream.start()
+            except Exception as e:
+                self.videostream = None
+                self.log.error("could not start stream: "+str(e))
+    def read_user_settings (self):
+        return self.stored_positions, self.stored_temperatures
+
+
+
+# USER-INTERFACE KEYBOARD MAPPING
+# the movement keys will be automatically mapped, they are not defined here
+keymap = {
+    ord('0'): (CLI.stop_all,),
+    Keys.F1: (CLI.store_position,1),
+    Keys.F2: (CLI.store_position,2),
+    Keys.F3: (CLI.store_position,3),
+    Keys.F4: (CLI.store_position,4),
+    Keys.F5: (CLI.store_position,5),
+    ord('1'): (CLI.recall_position,1),
+    ord('2'): (CLI.recall_position,2),
+    ord('3'): (CLI.recall_position,3),
+    ord('4'): (CLI.recall_position,4),
+    ord('5'): (CLI.recall_position,5),
+    Keys.INSERT: (CLI.store_home_position,),
+    Keys.HOME: (CLI.recall_home_position,),
+    #Keys.INSERT: (CLI.store_position,0),
+    #Keys.HOME: (CLI.recall_position,0),
+    ord('x'): (CLI.set_axis,'X'),
+    ord('y'): (CLI.set_axis,'Y'),
+    ord('z'): (CLI.set_axis,'Z'),
+    ord('q'): (CLI.query_position,),
+    ord('g'): (CLI.goto_position,),
+    #ord('m'): (CLI.set_middle,),
+    #ord('v'): (CLI.set_velocity,),
+    ord('v'): (CLI.toggle_video_stream,),
+    ord('l'): (CLI.toggle_led,),
+    ord('h'): (CLI.toggle_heater,),
+    ord('t'): (CLI.enter_temperature_ramp,),
+    ord('!'): (CLI.do_stack,),
+    ord('@'): (CLI.do_stack2,),
+    ord('*'): (CLI.liftoff,),
+    ord('c'): (CLI.toggle_camera,),
+    ord('?'): (CLI.user_help,)
+}
+
+

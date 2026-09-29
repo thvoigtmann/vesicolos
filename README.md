@@ -26,9 +26,51 @@ VESICOLOS was created by
 - Paulina Blair - science (DLR-FM / U Düsseldorf)
 - Christian Kahlo - software revision, spare parts ([VX4](https://sites.vx4.de/imprint))
 
+# Operating Setup and Procedure
+
+- VESICOLOS computer: Raspberry running `vesicolos.py`, configured
+  with a static-IP address `192.168.100.12`.
+- EGSE computer: configured with a static-IP network address
+  `192.168.100.42`.
+
+Countdown procedure:
+
+1. Prepare samples and insert sample slide into the microscope.
+2. Connect monitor, keyboard, mouse directly to the hardware, use program to find good sample positions and save them. Watch live video using script `camera.sh` on the Raspberry.
+3. Verify that recalling the stored positions is ok after program restart.
+4. Shutdown and insert hardware into the Nautilus pressure chamber.
+5. Connect directly to EGSE, verify that stored positions are ok, use videostream and `videostream.sh` on EGSE, and shutdown again.
+6. Late-access: hardware is integrated into the main rocket module.
+7. Payload checkout: connect from EGSE via dedicated network, check that stored positions are ok.
+8. If desired, shortly before LO start camera recording to have a video from the launch/ascent phase.
+8. Ready for liftoff!
+
+To see the video directly on the Raspberry, use
+```bash
+rpicam-vid -t 0
+```
+
+To control the program via EGSE, use
+```bash
+ssh vesicolos@192.168.100.12
+screen -d -r
+```
+
+To view the video from the EGSE, start the video stream in the program
+(using key `v`), and connect from EGSE using
+```bash
+ffplay -i udp://192.168.100.42:3333 -fflags nobuffer -flags low_delay -framedrop
+```
+
+In principle a remote-desktop connection using `xtigervncviewer` is possible,
+but we experienced that the Raspberry 5 might hang when using the
+`rpicam-vid` app over VNC.
+
+
+
 # Hardware Setup
 
-For the MAPHEUS-16 flight, we used a Raspberry 5, and the following
+For the MAPHEUS-16/17 flights, we used a Raspberry 5, and the following
 hardware setup:
 
 - Temperature sensor on SPI, 2-wire setup using Adafruit MAX31865 board.
@@ -37,6 +79,9 @@ hardware setup:
   controlled by a Waveshare driver.
   - Stage movement (X/Y): 2.3mm per turn of 4096 steps
   - Focus movement (Z): 0.1mm per turn of 4096 steps
+- The camera was measured to have a resolution of around 25px/mu,
+  see the calibration image in `tests/mu2.jpg` (spacing between the
+  lines is 10mu).
 
 Raspberry GPIO pin layout (using GPIO numbers, not physical pin numbers):
 
@@ -47,8 +92,8 @@ Raspberry GPIO pin layout (using GPIO numbers, not physical pin numbers):
 | GPIO 9  | SPI MISO  | standard                                |
 | GPIO 10 | SPI MOSI  | standard                                |
 | GPIO 11 | SPI CLK   | standard                                |
-| GPIO 12 | PWM1      | LED                                     |
-| GPIO 13 | PWM2      | heater                                  |
+| GPIO 12 | PWM1      | heater                                  |
+| GPIO 13 | PWM2      | LED                                     |
 | GPIO 17 | LO        | lift off from MOSAIC                    |
 | GPIO 23 | mug       | microgravity detection from MOSAIC      |
 
@@ -70,36 +115,93 @@ Raspberry GPIO pin layout (using GPIO numbers, not physical pin numbers):
   ignore the underpower warning if it thinks that our power supply cannot
   handle 5V/5A (it can).
 - The EEPROM config should be adapted with the `rpi-eeprom-config` tool.
-  The flight configuration (MAPHEUS-16) was
   ```bash
   BOOT_UART=1
   BOOT_ORDER=0xf461
   NET_INSTALL_AT_POWER_ON=0
   PSU_MAX_CURRENT=5000
   ```
+- Configure the on-board ethernet adapter to use a static IP,
+  currently we use `192.168.100.12`.
 
 
 # Software Installation
 
-The contents of this repository should be placed into
-`~/Desktop/vesicolos` such that the script `~/Desktop/vesicolos/start.sh`
-can be found.
+Clone the repository, into `~/Desktop`:
+```bash
+git clone git@github.com:thvoigtmann/vesicolos.git
+git submodule update --init
+```
 
-Inside this folder, a python virtual environment needs to be created
+Install some software that is not installed by default,
+```bash
+sudo apt install screen
+```
+
+Install the `lg` library needed for the `lgpio` package:
+see https://abyz.me.uk/lg/download.html and follow instructions
+there.
+
+Inside the `vesicolos` folder, a python virtual environment needs to be created
 as follows:
 ```bash
 python3 -m venv --system-site-packages venv
 . venv/bin/activate
+pip install -r requirements.txt
 ```
-Then install the required python libraries found in `requirements.txt`.
-For the `lgpio` library on the Raspberry 5, we found it necessary to first
-install `lg` from https://abyz.me.uk/lg/download.html (follow instructions
-there). The important packages that do not come with the raspberry install
-should be
+This should install the required python libraries found in `requirements.txt`.
+There `libcamera` module required by `picamera2` SHOULD be installable
+in a virtual environment, but in reality it's not, we need to take the
+one from the system libraries. If this creates problems with GPIO
+access, you need to separately
 ```bash
-adafruit-circuitpython-max31865 gpiozero lgpio rpi-lgpio pyserial
+pip install --ignore-installed gpiozero
 ```
+in the virtual environment.
 
 The file in `autostart` needs to be copied into `~/.config/autostart/`.
 This should make the vesicolos python program automatically start once
 the LXDE desktop is up.
+
+The driver for the ST3020 servos is included here, although there are
+variants:
+- the original WaveShare python code, somewhat incomplete and with bugs.
+- the currently used https://github.com/alessiodam/python-st3215 which
+  has some bugs, since it treats negative numbers incorrectly(?),
+  and we work around those
+- the https://github.com/Mickael-Roger/python-st3215 which looks correct
+  but is less nicely typed etc as the above one
+
+# Code Options
+
+The `vesciolos.py` uses a number of hard-coded defaults that can be
+found in the top part of the source code - those are mostly pin numbers
+and things related to the hardware.
+
+The code respects the following environment variables:
+
+| env variable   | function                 | Remark                   |
+|----------------|--------------------------|--------------------------|
+| `RASPI_MODEL`  | model version (4 or 5)   | switches UART device     |
+| `ST_DEVICE`    | UART device name         | overrides auto-detect    |
+| `DEBUG`        | debugging on             | increases log verbosity  |
+| `NO_GPIO`      | don't import GPIO lib    | for testing on non-RPi   |
+
+The code also looks for a JSON configuration file in `flight_config`
+in order to set per-flight defaults. The first command-line argument, if
+given, can explicitly specify the name of a JSON file, e.g.
+`vesicolos.py M16_HCD`.
+If no file name is given, the file in `flight_config` with the latest
+modification-time stamp will be used. Currently, we set
+
+| config variable | function                                   |
+|-----------------|--------------------------------------------|
+| `SOE_TIMEOUT`   | SOE timeout in seconds, if no signal comes |
+| `EXP_TIMEOUT`   | EXP timeout in seconds, if no signal comes |
+
+
+# Code Details
+
+For some more technical notes, see:
+- [doc/ST3020.md](ST3020 Servo EEPROM and SRAM registers)
+- [doc/setup.md](setup) for the flight-hardware network and git

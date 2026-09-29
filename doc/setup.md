@@ -1,0 +1,53 @@
+# Local git setup
+
+The VESICOLOS flight hardware usually does not have direct internet
+connection; a typical setup is a local-network connection to a
+ground-control computer (part of the EGSE).
+
+We use a local bare clone of the git repository on the EGSE computer:
+- on that computer, the github repository is checked out normally
+- there, a second remote is configured,
+  ```bash
+  git remote add vlocal tv@localhost:$path_to_bare_clone/vesicolos.git
+  ```
+- the two copies are kept in sync by performing, in the normal code tree
+  ```bash
+  git fetch vlocal dev
+  git merge vlocal/dev
+  ```
+  and similar push commands
+- on the flight hardware, the `vlocal` repo is the main remote
+
+Thus, if changes are made directly on the flight hardware, we need to
+push them to the connected EGSE computer at some point. Then there,
+we sync these changes back into the main tree, which we sync with github.
+
+The github `.git/config` then has these entries:
+```
+[remote "origin"]
+        url = git@github.com:thvoigtmann/vesicolos.git
+        fetch = +refs/heads/*:refs/remotes/origin/*
+[remote "vlocal"]
+        url = tv@192.168.100.42:tmp/downloads/v/vesicolos.git
+        fetch = +refs/heads/*:refs/remotes/origin/*
+```
+
+# Flight Hardware network
+
+The VESCIOLOS Raspberry is normally hard-wired to the IP address
+`192.168.100.12`, for the EGSE computer we use `192.168.100.42` (this
+the VESICOLOS hardware only needs to know in case we want to sync
+the git repo as described above).
+
+How to setup fixed IP: something like
+```bash
+nmcli con add con-name vesicolos ifname enx00800f11732f type ethernet ip4 192.168.100.42/24
+```
+
+# Miscellanea for testing
+
+To start a video stream on the raspi, use
+```bash
+rpicam-vid --low-latency --level 4.2 --framerate 30 --width 640 --height 480 -t 0 --denoise cdn_off -n -o udp://192.168.100.42:3333
+```
+

@@ -1,0 +1,5 @@
+{
+    "SOE_TIMEOUT": 10,
+    "EXP_TIMEOUT": 120,
+    "FLIGHTMODE": false
+}

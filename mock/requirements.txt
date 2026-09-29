@@ -1,0 +1,4 @@
+Mock.GPIO
+gpiozero
+adafruit-circuitpython-max31865
+picamera2
