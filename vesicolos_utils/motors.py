@@ -203,14 +203,15 @@ class MotorController:
         if not self.controller: return False
         success = True
         with self.serial_lock:
-            self.controller.broadcast.SyncWriteRunningSpeed(
+            res = self.controller.broadcast.SyncWriteRunningSpeed(
                 {servo.id: 0 for servo in self._servos.values()}
             )
+            time.sleep(0.2)
             # use broadcast sync_read_current_speed for return?
             for ax in self.current_set_speed:
                 self.current_set_speed[ax] = 0
                 vel = self._servos[ax].ReadPresentSpeed()
-                if vel is None or vel != 0:
+                if vel is None or abs(vel) > 50:
                     #self.current_set_speed[ax] = vel
                     self.log.error("motor set speed 0 failed?"+str(vel))
                     success =False

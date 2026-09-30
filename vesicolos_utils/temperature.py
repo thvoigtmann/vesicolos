@@ -84,6 +84,6 @@ class TemperatureController:
                     # but this is not implemented yet
                     self.heater.off()
                 self.log.info(\
-                    "t - t0 = {}, T = {}, Ttarget = {}, heat {}" \
+                        "t - t0 = {:.2f}, T = {:.2f}, Ttarget = {:.2f}, heat {}" \
                     .format(t,Tcurrent,Ttarget,self.heater.is_active))
             time.sleep(1)
