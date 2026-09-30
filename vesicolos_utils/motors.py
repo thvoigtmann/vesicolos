@@ -446,8 +446,8 @@ class MotorController:
                 zpos = 2048 # + MOTOR_DZ_STEPSIZE*int(MOTOR_DZ_STEPS/2)
                 zcnt = int(steps/2)
                 zdirection = +1
-                self.goto_position('Z',zpos)
-                self.log.info(f'performing {axis} axis stack')
+                self.goto_position(axis,zpos)
+                self.log.info(f'performing {axis} axis stack {steps} steps size {stepsize}')
                 do_zstack = True
             except MicrogravityTimeout:
                 raise
@@ -458,6 +458,7 @@ class MotorController:
                 do_zstack = False
         t0 = time.time()
         while True:
+            task(wait)
             if do_zstack:
                 if zcnt >= steps:
                     zdirection = -zdirection
@@ -470,7 +471,6 @@ class MotorController:
                     raise
                 except:
                     pass
-            task(wait)
             if time.time() > t0 + tmax:
                 break
         if do_zstack:
