@@ -343,7 +343,10 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
             for pos in positions:
                 if pos == 'homepos':
                     continue
+                if not pos == 'default':
+                    motor_controller.move_to_position (STATE_VARS['user.positions'][pos], monitor.wrap)
                 tmax = STATE_VARS['user.temperatures'].get(pos,{}).get('tmax',TMAX_DEFAULT)
+                log.info(f"position {pos}, tmax={tmax}")
                 def imgstack (wait):
                     ckey = make_camera_key(recordings, pos, pre='mug_')
                     recordings.append(ckey)
@@ -356,11 +359,6 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                     except RuntimeError as e:
                         camera = None
                         log.error('camera error '+str(e))
-                    if not pos == 'default':
-                        motor_controller.move_to_position (STATE_VARS['user.positions'][pos], monitor.wrap)
-                        stack_axis = 'Z'
-                    else:
-                        stack_axis = 'Z'
                     Tcontrol.set_profile (pos)
                     # take some time, do z-stacks
                     motor_controller.zstack('Z', lambda wait: time.sleep(wait), tmax=tmax)
