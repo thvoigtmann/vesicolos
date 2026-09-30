@@ -1,5 +1,12 @@
 {
     "SOE_TIMEOUT": 65,
     "EXP_TIMEOUT": 440,
-    "FLIGHTMODE": true
+    "FLIGHTMODE": true,
+    "TEMP_DEFAULT": {
+        "Tmin": 25,
+        "Tmax": 30,
+        "dt": 60,
+        "tstart": 10,
+        "tmax": 120
+    }
 }

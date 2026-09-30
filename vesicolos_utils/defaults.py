@@ -53,8 +53,7 @@ SERVO_CMDS = {
 }
 
 # maximum time to spend on one T-controlled sample position
-TMAX_DEFAULT = 50
-
+TMAX_DEFAULT = 110
 
 # files that will be written by the process
 RESTARTFILE = 'vesicolos-restart.json'
