@@ -24,7 +24,7 @@ class CameraController ():
         self.picam = picamera2.Picamera2()
         #target_mode = self.picam.sensor_modes[8]
         self.config = self.picam.create_video_configuration(
-                main={'size':(1920,1080)}, #sensor={'output_size': (1920,1080)},
+                main={'size':(3840,2160)}, #sensor={'output_size': (1920,1080)},
                 #raw={'format': target_mode['unpacked'], 'size': target_mode['size']}, sensor={'output_size': target_mode['size']},
                 #main={'size':(3840,2160)},
                 controls=camcontrols)
