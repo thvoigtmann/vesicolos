@@ -37,13 +37,14 @@ Countdown procedure:
 
 1. Prepare samples and insert sample slide into the microscope.
 2. Connect monitor, keyboard, mouse directly to the hardware, use program to find good sample positions and save them. Watch live video using script `camera.sh` on the Raspberry.
-3. Verify that recalling the stored positions is ok after program restart.
-4. Shutdown and insert hardware into the Nautilus pressure chamber.
-5. Connect directly to EGSE, verify that stored positions are ok, use videostream and `videostream.sh` on EGSE, and shutdown again.
-6. Late-access: hardware is integrated into the main rocket module.
-7. Payload checkout: connect from EGSE via dedicated network, check that stored positions are ok.
-8. If desired, shortly before LO start camera recording to have a video from the launch/ascent phase.
-8. Ready for liftoff!
+3. Store a savepos using `F1`. (Could store more, we skip that for now.)
+4. Verify that recalling the stored positions is ok after program restart.
+5. Shutdown and insert hardware into the Nautilus pressure chamber.
+6. Connect directly to EGSE, verify that stored positions are ok, use videostream and `videostream.sh` on EGSE, and shutdown again.
+7. Late-access: hardware is integrated into the main rocket module.
+8. Payload checkout: connect from EGSE via dedicated network, check that stored positions are ok.
+9. If desired, shortly before LO start camera recording to have a video from the launch/ascent phase.
+10. Ready for liftoff!
 
 To see the video directly on the Raspberry, use
 ```bash
