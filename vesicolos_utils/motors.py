@@ -326,10 +326,17 @@ class MotorController:
             with self.serial_lock:
                 # TODO broadcast?
                 for ax in self.axes:
-                    self._servos[ax].setMiddle()
+                    self.set_middle(axis=ax)
         elif axis in self.axes:
             with self.serial_lock:
-                self._servos[axis].setMiddle()
+                res = None
+                cnt = 0
+                while res is None and cnt<5:
+                    res = self._servos[axis].setMiddle()
+                    cnt += 1
+            if res is None:
+                raise
+            return res
     def move_to_position (self, target_pos, wrap):
         axes_ = self.axes
         """Move all motors to the positions given in `target_pos`, taking into
