@@ -426,7 +426,7 @@ print('END')
 log.info('EXIT')
 
 if FLIGHTMODE:
-    if stop:
+    if stop or manual_lift_off:
         print("manual exit, no shutdown")
     else:
         import subprocess
