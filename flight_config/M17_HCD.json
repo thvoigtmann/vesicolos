@@ -4,9 +4,9 @@
     "FLIGHTMODE": true,
     "TEMP_DEFAULT": {
         "Tmin": 25,
-        "Tmax": 30,
-        "dt": 60,
+        "Tmax": 26,
+        "dt": 40,
         "tstart": 10,
-        "tmax": 120
+        "tmax": 60
     }
 }
