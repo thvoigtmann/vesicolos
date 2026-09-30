@@ -11,7 +11,7 @@ from serial.serialutil import SerialException
 from . import Word16
 
 #from .defaults import MOTOR_DZ_STEPSIZE, MOTOR_DZ_STEPS
-from . import MicrogravityTimeout
+from . import MicrogravityTimeout, safe_int
 
 #import ansi
 
@@ -553,16 +553,16 @@ class ServoMonitor():
                 else:
                     sample_temp = -1
                 if self.pos is not None:
-                    posinfo = '  '.join([ ax + f' {self.pos[ax] or -1:4d} ({self.wrap[ax]:2d})' for ax in self.pos ])
+                    posinfo = '  '.join([ ax + f' {safe_int(self.pos[ax],4)} ({self.wrap[ax]:2d})' for ax in self.pos ])
                 else:
                     posinfo = 'ERROR'
                 if self.vel is not None:
-                    velinfo = '  '.join([ ax + f' {vel or -1:4d}' for ax,vel in self.vel.items() ])
+                    velinfo = '  '.join([ ax + f' {safe_int(vel,4)}' for ax,vel in self.vel.items() ])
                 else:
                     velinfo = 'ERROR'
-                velsetinfo = '  '.join([ ax + f' {vset or -1:4d}' for ax,vset in self.motors.current_set_speed.items()])
+                velsetinfo = '  '.join([ ax + f' {safe_int(vset,4)}' for ax,vset in self.motors.current_set_speed.items()])
                 if self.torque is not None:
-                    torqueinfo = '  '.join([ ax + f' {trq or -1:4d}' for ax,trq in self.torque.items() ])
+                    torqueinfo = '  '.join([ ax + f' {safe_int(trq,4)}' for ax,trq in self.torque.items() ])
                 else:
                     torqueinfo = 'ERROR'
                 flags = ' '.join([f"{k} {int(v)}" for k,v in self.status.items()])

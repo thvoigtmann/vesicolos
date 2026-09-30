@@ -317,3 +317,8 @@ class Word16:
 
 class MicrogravityTimeout (Exception):
     pass
+
+def safe_int (value, fmtlen):
+    if value is not None:
+        return f'{value:{fmtlen}d}'
+    return 'ERR'.rjust(fmtlen)

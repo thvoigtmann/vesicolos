@@ -30,6 +30,7 @@ from vesicolos_utils.defaults import *
 # and that we want back after a program cycle
 # these could be power cycles, so we try to catch what we can
 # what is configurable here is the default temperature profile
+# this will be overwritten by values in the flight config
 STATE_VARS = {
     'user.positions': {},
     'user.temperatures': {
@@ -160,12 +161,29 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
     motor_controller.stop_all()
     motor_controller.wheel_mode()
 
+    # load flight configuration
+    fc = load_flight_config (CONFPATH, log)
+    SOE_TIMEOUT = fc.get('SOE_TIMEOUT', SOE_TIMEOUT_DEFAULT)
+    EXP_TIMEOUT = fc.get('EXP_TIMEOUT', EXP_TIMEOUT_DEFAULT)
+    FLIGHTMODE = fc.get('FLIGHTMODE', False)
+    log.info(f"SOE TIMEOUT {SOE_TIMEOUT}")
+    log.info(f"EXP TIMEOUT {EXP_TIMEOUT}")
+    if FLIGHTMODE:
+        log.info(f"FLIGHTMODE")
+    if 'TEMP_DEFAULT' in fc:
+        fct = fc['TEMP_DEFAULT']
+        for key in ['Tmin','Tmax','dt','tstart','tmax']:
+            if key in fct:
+                STATE_VARS['user.temperatures']['default'][key] = fct[key]
+
     # load restart file
     # this is supposed to catch power cycles, in particular allowing for
     # the case where some positions to search are stored ahead of
     # integration into the rocket, or if lift-off causes a power cycle
     # TODO if we crash while the motors are moving, what happens?
     load_restart (STATE_VARS, RESTARTFILE, log)
+    # continuously save restart file
+    threading.Thread(target=save_restart,args=[prog_end,RESTARTFILE,STATE_VARS]).start()
 
     monitor = vm.ServoMonitor(motor_controller,temp_sensor,led,heater,log=tlog,increment=MONITOR_INTERVAL,state=STATE_VARS,global_status=status)
     # the monitor will set state_valid to False is the positions read
@@ -176,17 +194,6 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
         log.error("restart file ignored, motor pos mismatch")
         STATE_VARS["user.positions"] = {}
 
-    # load flight configuration
-    fc = load_flight_config (CONFPATH, log)
-    SOE_TIMEOUT = fc.get('SOE_TIMEOUT', SOE_TIMEOUT_DEFAULT)
-    EXP_TIMEOUT = fc.get('EXP_TIMEOUT', EXP_TIMEOUT_DEFAULT)
-    FLIGHTMODE = fc.get('FLIGHTMODE', False)
-    log.info(f"SOE TIMEOUT {SOE_TIMEOUT}")
-    log.info(f"EXP TIMEOUT {EXP_TIMEOUT}")
-    if FLIGHTMODE:
-        log.info(f"FLIGHTMODE")
-
-    threading.Thread(target=save_restart,args=[prog_end,RESTARTFILE,STATE_VARS]).start()
 
     #for ax in motor_controller.axes:
     #    print("max torque",ax,motor_controller._servos[ax].eeprom.read_max_torque())
