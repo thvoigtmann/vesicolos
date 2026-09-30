@@ -345,7 +345,10 @@ with vm.MotorController(device=st_device, log=log, axes_map=SERVO_AXIS_MAP, moto
                     continue
                 if not pos == 'default':
                     motor_controller.move_to_position (STATE_VARS['user.positions'][pos], monitor.wrap)
-                tmax = STATE_VARS['user.temperatures'].get(pos,{}).get('tmax',TMAX_DEFAULT)
+                tposkey = pos
+                if not tposkey in STATE_VARS['user.temperatures']:
+                    tposkey = 'default'
+                tmax = STATE_VARS['user.temperatures'].get(tposkey,{}).get('tmax',TMAX_DEFAULT)
                 log.info(f"position {pos}, tmax={tmax}")
                 def imgstack (wait):
                     ckey = make_camera_key(recordings, pos, pre='mug_')
